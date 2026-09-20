@@ -48,10 +48,16 @@ function expandedSurfaceFromState(state = {}) {
   return !!(state.menuOpen || state.dialogOpen || state.editorOpen || state.maskOpen || state.listOpen);
 }
 
-function surfaceRootOffset(frame, compactWidth, compactHeight) {
+function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = null) {
+  const frameWidth = Math.round(Number(frame?.width) || 0);
+  const frameHeight = Math.round(Number(frame?.height) || 0);
+  const compactW = Math.round(Number(compactWidth) || 0);
+  const compactH = Math.round(Number(compactHeight) || 0);
+  const desiredRight = finite(screenAnchor?.right) ? Number(screenAnchor.right) : Number(frame?.x || 0) + frameWidth;
+  const desiredBottom = finite(screenAnchor?.bottom) ? Number(screenAnchor.bottom) : Number(frame?.y || 0) + frameHeight;
   return {
-    left: Math.max(0, Math.round(Number(frame?.width) || 0) - Math.round(Number(compactWidth) || 0)),
-    top: Math.max(0, Math.round(Number(frame?.height) || 0) - Math.round(Number(compactHeight) || 0)),
+    left: Math.max(0, Math.min(Math.max(0, frameWidth - compactW), Math.round(desiredRight - Number(frame?.x || 0) - compactW))),
+    top: Math.max(0, Math.min(Math.max(0, frameHeight - compactH), Math.round(desiredBottom - Number(frame?.y || 0) - compactH))),
   };
 }
 

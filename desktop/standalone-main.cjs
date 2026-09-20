@@ -219,18 +219,19 @@ async function runInteractionTest() {
     evidence.steps.push({ name: 'hover-button-no-resize', pass: hoverStable, before: initial, after: hoverFrame });
 
     const scaleResults = [];
-    let anchor = null;
+    let previousFrame = initial;
     for (const scale of [0.6, 1.6, 2.5, 1.0]) {
       await interactionRendererEval(`window.__whaleRenderTest?.scale(${scale})`);
       const expected = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * scale)));
+      const expectedFrame = previousFrame ? resizeFrameKeepingBottomRight(previousFrame, expected, expected, workAreaFor(previousFrame), MIN_WIDGET_SIZE) : null;
       const frame = await waitForInteractionFrame(expected, expected);
       const dom = await interactionRendererEval("(() => { const root=document.querySelector('.dshwv-root')?.getBoundingClientRect(); const img=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return {root:root && {left:root.left,top:root.top,width:root.width,height:root.height}, image:img && {left:img.left,top:img.top,width:img.width,height:img.height}, scrollWidth:document.documentElement.scrollWidth, scrollHeight:document.documentElement.scrollHeight}; })()");
       const nextAnchor = frame ? { right: frame.x + frame.width, bottom: frame.y + frame.height } : null;
       const sizePass = !!frame && !!dom?.root && Math.abs(dom.root.width - expected) <= 3 && Math.abs(dom.root.height - expected) <= 3 && Math.abs(frame.width - expected) <= 3 && Math.abs(frame.height - expected) <= 3;
-      const anchorPass = !anchor || !nextAnchor || Math.abs(anchor.right - nextAnchor.right) <= 3 && Math.abs(anchor.bottom - nextAnchor.bottom) <= 3;
+      const anchorPass = !!expectedFrame && !!frame && Math.abs(expectedFrame.x - frame.x) <= 3 && Math.abs(expectedFrame.y - frame.y) <= 3 && Math.abs(expectedFrame.width - frame.width) <= 3 && Math.abs(expectedFrame.height - frame.height) <= 3;
       const visiblePass = !!dom?.image && dom.image.width > 0 && dom.image.height > 0 && dom.image.left >= dom.root.left - 2 && dom.image.top >= dom.root.top - 2 && dom.image.left + dom.image.width <= dom.root.left + dom.root.width + 2 && dom.image.top + dom.image.height <= dom.root.top + dom.root.height + 2 && dom.scrollWidth <= expected + 2 && dom.scrollHeight <= expected + 2;
-      scaleResults.push({ scale, expected, frame, dom, sizePass, anchorPass, visiblePass });
-      if (!anchor) anchor = nextAnchor;
+      scaleResults.push({ scale, expected, expectedFrame, frame, dom, sizePass, anchorPass, visiblePass });
+      previousFrame = frame;
     }
     evidence.steps.push({ name: 'same-run-scale-roundtrip', pass: scaleResults.every(step => step.sizePass && step.anchorPass && step.visiblePass), results: scaleResults });
 
@@ -250,8 +251,9 @@ async function runInteractionTest() {
     const beforeClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     if (!role) throw new Error('role geometry missing for input test');
     window.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(role.x), y: Math.round(role.y) });
-    window.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1 });
-    window.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1 });
+    const inputX = Math.round(role.x), inputY = Math.round(role.y);
+    window.webContents.sendInputEvent({ type: 'mouseDown', x: inputX, y: inputY, button: 'left', clickCount: 1 });
+    window.webContents.sendInputEvent({ type: 'mouseUp', x: inputX, y: inputY, button: 'left', clickCount: 1 });
     await interactionDelay(650);
     const afterClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     const clickPass = !!beforeClick && !!afterClick && (afterClick.epoch !== beforeClick.epoch || afterClick.shown === true);
@@ -356,13 +358,15 @@ function reportNativeWidgetSize(requestedWidth, requestedHeight) {
 function applySurfaceGeometry(expanded) {
   if (!window || window.isDestroyed() || nativeDrag) return;
   if (expanded) {
+    const before = window.getBounds();
+    const screenAnchor = { right: before.x + before.width, bottom: before.y + before.height };
     const target = resizeKeepingBottomRight(760, 700) || window.getBounds();
     const [width, height] = compactWidgetDimensions();
-    // The role is laid out at the compact root's bottom/right. Expanding the
-    // native surface toward the old bottom/right without this local offset
-    // moves the role by the difference in window sizes. Keep the root's
-    // screen-space bottom/right anchor and let the menu use the extra surface.
-    const offset = surfaceRootOffset(target, width, height);
+    // The role is laid out at the compact root's bottom/right. Preserve its
+    // pre-expansion screen anchor when the expanded frame fits; when the
+    // display edge clamps that frame, clamp the local offset to the feasible
+    // part of the new content instead of moving the role to the new corner.
+    const offset = surfaceRootOffset(target, width, height, screenAnchor);
     sendNativeRootOffset(offset.left, offset.top);
   } else {
     const [width, height] = compactWidgetDimensions();
