@@ -214,7 +214,7 @@ async function waitForInteractionReady() {
 async function runInteractionTest() {
   if (interactionTestStarted || !window || window.isDestroyed()) return;
   interactionTestStarted = true;
-  const evidence = { version: 'mac-interaction-1', syntheticInputOnly: true, osPointerValidated: false, pass: false, steps: [] };
+  const evidence = { version: 'mac-interaction-2', syntheticInputOnly: true, osPointerValidated: false, pass: false, steps: [] };
   try {
     for (let i = 0; i < 100 && (!layoutReady || !window.isVisible()); i += 1) await interactionDelay(20);
     const initial = interactionFrame();
@@ -258,16 +258,26 @@ async function runInteractionTest() {
     const roleRegionPass = !!role && hitRegions.some(region => region.left <= role.left + 2 && region.top <= role.top + 2 && region.left + region.width >= role.right - 2 && region.top + region.height >= role.bottom - 2);
     evidence.steps.push({ name: 'role-hit-region-before-input', pass: roleRegionPass, role, hitRegions });
     setInputEnabled(true, 'synthetic-input-test');
-    const beforeClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     if (!role) throw new Error('role geometry missing for input test');
-    window.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(role.x), y: Math.round(role.y) });
     const inputX = Math.round(role.x), inputY = Math.round(role.y);
-    window.webContents.sendInputEvent({ type: 'mouseDown', x: inputX, y: inputY, button: 'left', clickCount: 1 });
-    window.webContents.sendInputEvent({ type: 'mouseUp', x: inputX, y: inputY, button: 'left', clickCount: 1 });
-    await interactionDelay(650);
-    const afterClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
-    const clickPass = !!beforeClick && !!afterClick && (afterClick.epoch !== beforeClick.epoch || afterClick.shown === true);
+    const sendRoleClick = async () => {
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: inputX, y: inputY });
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: inputX, y: inputY, button: 'left', clickCount: 1 });
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: inputX, y: inputY, button: 'left', clickCount: 1 });
+      await interactionDelay(900);
+      return interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    };
+    // Use a deterministic three-item queue, then drive it through the same
+    // packaged BrowserWindow input path used by the smoke test. This keeps
+    // random text and quota refreshes out of the click-state assertion.
+    await interactionRendererEval("window.__whaleRenderTest?.queue([{kind:'custom',modules:[{type:'text',text:'A',size:6}]},{kind:'custom',modules:[{type:'text',text:'B',size:6}]},{kind:'custom',modules:[{type:'text',text:'C',size:6}]}])");
+    const beforeClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    const afterClick = await sendRoleClick();
+    const clickPass = !!beforeClick && !!afterClick && afterClick.shown === true && afterClick.epoch !== beforeClick.epoch;
     evidence.steps.push({ name: 'synthetic-input-chain-click', pass: clickPass, before: beforeClick, after: afterClick });
+    const afterSecondClick = await sendRoleClick();
+    const secondClickPass = !!afterClick && !!afterSecondClick && afterSecondClick.shown === true && afterSecondClick.epoch !== afterClick.epoch;
+    evidence.steps.push({ name: 'synthetic-input-chain-second-click-advances', pass: secondClickPass, first: afterClick, second: afterSecondClick });
     await interactionRendererEval(`window.__whaleRenderTest?.scale(${initialScale})`);
     const restoredFrame = await waitForInteractionFrame(Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))), Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))));
     const restorePass = !!restoredFrame;

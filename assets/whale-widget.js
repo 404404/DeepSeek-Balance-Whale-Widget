@@ -4635,7 +4635,8 @@
           saveBubbleCfg({
             v: 1,
             items: items,
-            lib: bubbleLib
+            lib: bubbleLib,
+            tapAdvance: bubbleTapAdvance
           }, function (ok) {
             if (ok !== false) closeBubbleEditor();
           });
@@ -8014,6 +8015,10 @@
     var bubbleRoundOn = false;
     var bubbleCfg = null;
     var bubbleLib = [];
+    // The standalone App has no separate legacy checkbox for this behavior.
+    // Keep role clicks useful by default, while honoring an explicit upstream
+    // tapAdvance:false value when an older configuration contains it.
+    var bubbleTapAdvance = true;
     function bubbleCloneModule(m) {
       var copy = JSON.parse(JSON.stringify(m || ({})));
       if (m && whaleMoneyTemplates.has(m)) whaleMoneyTemplates.set(copy, whaleMoneyTemplates.get(m));
@@ -8094,6 +8099,7 @@
           if (d && d.ok && d.config) {
             bubbleCfg = d.config;
             bubbleLib = d.config.lib && Array.isArray(d.config.lib) ? JSON.parse(JSON.stringify(d.config.lib)) : [];
+            bubbleTapAdvance = d.config.tapAdvance !== false;
             applyBubbleCfgSeq();
           }
         }).catch(function () {});
@@ -8113,6 +8119,7 @@
           requireSaved(d);
           if (d && d.ok && d.config) {
             bubbleCfg = d.config;
+            bubbleTapAdvance = d.config.tapAdvance !== false;
             applyBubbleCfgSeq();
             if (okFn) okFn();
           } else if (okFn) okFn(false);
@@ -8779,6 +8786,13 @@
           return;
         }
         if (!bubbleRoundOn) return;
+        // Role clicks use the same queue as bubble clicks. The previous
+        // standalone path always treated seqIdx === 1 as a TTL refresh, so a
+        // second click could never reach the next configured item.
+        if (bubbleTapAdvance) {
+          bubbleNext();
+          return;
+        }
         if (bubbleSeqIdx <= 1) {
           bubbleResetTtl();
           return;
