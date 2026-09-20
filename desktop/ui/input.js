@@ -170,7 +170,10 @@
   document.addEventListener('transitionrun', e => {
     if (e.target.closest('.dshwv-root,.dshwv-position')) rendering.presentFor(600);
   }, true);
-  window.addEventListener('resize', () => { reportWidgetSize(); reportHitRegion(true); rendering.presentFor(220); });
+  // The native host may resize the BrowserWindow before Chromium dispatches
+  // its resize event. Force a fresh geometry report here so the host and the
+  // packaged smoke evidence cannot retain the pre-resize viewport.
+  window.addEventListener('resize', () => { reportWidgetSize(true); reportHitRegion(true); rendering.presentFor(220); });
   if (standalone && typeof ResizeObserver === 'function') new ResizeObserver(reportWidgetSize).observe(root);
   async function prepare() {
     if (!pet.complete) return;
