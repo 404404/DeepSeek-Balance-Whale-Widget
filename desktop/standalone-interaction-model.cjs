@@ -34,6 +34,16 @@ function screenMoved(start, current, threshold = 3) {
   return dx * dx + dy * dy >= threshold * threshold;
 }
 
+// The renderer may report many small moves while a native drag is being
+// captured. Do not move the BrowserWindow until the gesture has crossed the
+// click threshold; once crossed, the gesture remains a drag.
+function nativeDragMovement(start, current, moved = false, threshold = 3) {
+  const dx = finite(start?.x) && finite(current?.x) ? Number(current.x) - Number(start.x) : 0;
+  const dy = finite(start?.y) && finite(current?.y) ? Number(current.y) - Number(start.y) : 0;
+  const nextMoved = !!moved || screenMoved(start, current, threshold);
+  return { dx, dy, moved: nextMoved, shouldMove: nextMoved };
+}
+
 function cursorInRegions(cursor, contentBounds, regions) {
   if (!cursor || !contentBounds || !Array.isArray(regions)) return false;
   if (![cursor.x, cursor.y, contentBounds.x, contentBounds.y].every(finite)) return false;
@@ -66,6 +76,7 @@ module.exports = {
   clampFrameToArea,
   resizeKeepingBottomRight,
   screenMoved,
+  nativeDragMovement,
   cursorInRegions,
   expandedSurfaceFromState,
   surfaceRootOffset,

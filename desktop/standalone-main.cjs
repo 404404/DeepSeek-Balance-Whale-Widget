@@ -6,7 +6,7 @@ const { UiStateStore } = require('./ui-state-store.cjs');
 const { shutdownCompanion } = require('./lifecycle.cjs');
 const { externalWebUrl } = require('./external-links.cjs');
 const { pathToFileURL } = require('node:url');
-const { targetWidgetSize, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, screenMoved, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
+const { targetWidgetSize, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
 
 const root = path.resolve(__dirname, '..');
 const MIN_WIDGET_SIZE = 122;
@@ -436,19 +436,21 @@ function moveNativeDrag(point) {
   if (!nativeDrag || !window || window.isDestroyed()) return;
   const cursor = cursorScreenPoint(point);
   if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return;
-  const dx = cursor.x - nativeDrag.x;
-  const dy = cursor.y - nativeDrag.y;
-  if (!nativeDrag.moved && screenMoved({ x: nativeDrag.x, y: nativeDrag.y }, cursor, 3)) {
-    nativeDrag.moved = true;
+  const movement = nativeDragMovement({ x: nativeDrag.x, y: nativeDrag.y }, cursor, nativeDrag.moved, 3);
+  nativeDrag.moved = movement.moved;
+  if (!movement.shouldMove) return;
+  if (!nativeDrag.notifiedMoved) {
+    nativeDrag.notifiedMoved = true;
     try { window.webContents.send('whale-native-drag-moved'); } catch {}
   }
   const frame = nativeDrag.frame;
-  window.setPosition(Math.round(frame.x + dx), Math.round(frame.y + dy));
+  window.setPosition(Math.round(frame.x + movement.dx), Math.round(frame.y + movement.dy));
 }
 function endNativeDrag() {
   if (!nativeDrag) return;
+  const completed = nativeDrag.moved;
   nativeDrag = null;
-  scheduleFrameSave();
+  if (completed) scheduleFrameSave();
   writeLayoutDiagnostic();
   if (pendingSurface !== null) {
     const next = pendingSurface;
