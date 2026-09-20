@@ -211,6 +211,7 @@ async function runInteractionTest() {
   try {
     for (let i = 0; i < 100 && (!layoutReady || !window.isVisible()); i += 1) await interactionDelay(20);
     const initial = interactionFrame();
+    const initialScale = Number(await interactionRendererEval("Number.parseFloat(getComputedStyle(document.querySelector('.dshwv-root')).getPropertyValue('--dshw-scale'))")) || 1.5;
     await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r ? {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height} : null; })()");
     await interactionRendererEval("(() => { const b=document.querySelector('.dshwv-menu-btn'); b?.classList.add('dshwv-menu-btn-visible'); return !!b; })()");
     await interactionDelay(220);
@@ -258,6 +259,10 @@ async function runInteractionTest() {
     const afterClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     const clickPass = !!beforeClick && !!afterClick && (afterClick.epoch !== beforeClick.epoch || afterClick.shown === true);
     evidence.steps.push({ name: 'synthetic-input-chain-click', pass: clickPass, before: beforeClick, after: afterClick });
+    await interactionRendererEval(`window.__whaleRenderTest?.scale(${initialScale})`);
+    const restoredFrame = await waitForInteractionFrame(Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))), Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))));
+    const restorePass = !!restoredFrame;
+    evidence.steps.push({ name: 'restore-persisted-scale', pass: restorePass, initialScale, frame: restoredFrame });
     evidence.pass = evidence.steps.every(step => step.pass);
   } catch (error) {
     evidence.error = String(error?.message || error).slice(0, 300);
