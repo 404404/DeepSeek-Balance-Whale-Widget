@@ -74,6 +74,13 @@ if routing.get('mode') != 'native-screen-hit-region':
     raise SystemExit(f'unexpected input routing mode: {routing}')
 if not isinstance(routing.get('hitRegions'), list) or not routing['hitRegions']:
     raise SystemExit(f'missing native hit regions: {routing}')
+if not any(
+    isinstance(region, dict)
+    and float(region.get('width', 0) or 0) >= 50
+    and float(region.get('height', 0) or 0) >= 50
+    for region in routing['hitRegions']
+):
+    raise SystemExit(f'role hit region missing; menu-only routing would pass: {routing}')
 phases = startup.get('phases', {})
 for key in ('appReady','dispatcherReady','windowCreated','pageLoaded','imageAndInputReady','interactive'):
     if key not in phases:

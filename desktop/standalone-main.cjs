@@ -204,6 +204,13 @@ async function waitForInteractionFrame(width, height) {
   }
   return frame;
 }
+async function waitForInteractionReady() {
+  for (let i = 0; i < 120; i += 1) {
+    if (rendererReady && layoutReady && window && !window.isDestroyed() && window.isVisible()) return true;
+    await interactionDelay(20);
+  }
+  return false;
+}
 async function runInteractionTest() {
   if (interactionTestStarted || !window || window.isDestroyed()) return;
   interactionTestStarted = true;
@@ -247,8 +254,10 @@ async function runInteractionTest() {
     await interactionRendererEval("window.__whaleRenderTest?.menu(false)");
     await interactionDelay(300);
 
+    const role = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,left:r.left,top:r.top,right:r.right,bottom:r.bottom}; })()");
+    const roleRegionPass = !!role && hitRegions.some(region => region.left <= role.left + 2 && region.top <= role.top + 2 && region.left + region.width >= role.right - 2 && region.top + region.height >= role.bottom - 2);
+    evidence.steps.push({ name: 'role-hit-region-before-input', pass: roleRegionPass, role, hitRegions });
     setInputEnabled(true, 'synthetic-input-test');
-    const role = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2}; })()");
     const beforeClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     if (!role) throw new Error('role geometry missing for input test');
     window.webContents.sendInputEvent({ type: 'mouseMove', x: Math.round(role.x), y: Math.round(role.y) });
@@ -263,6 +272,11 @@ async function runInteractionTest() {
     const restoredFrame = await waitForInteractionFrame(Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))), Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))));
     const restorePass = !!restoredFrame;
     evidence.steps.push({ name: 'restore-persisted-scale', pass: restorePass, initialScale, frame: restoredFrame });
+    restoreWidget();
+    const restoredReady = await waitForInteractionReady();
+    const restoredRole = restoredReady ? await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {left:r.left,top:r.top,right:r.right,bottom:r.bottom}; })()") : null;
+    const restoredRoleRegionPass = !!restoredRole && hitRegions.some(region => region.left <= restoredRole.left + 2 && region.top <= restoredRole.top + 2 && region.left + region.width >= restoredRole.right - 2 && region.top + region.height >= restoredRole.bottom - 2);
+    evidence.steps.push({ name: 'restore-widget-reports-role-hit-region', pass: restoredReady && restoredRoleRegionPass, restoredReady, role: restoredRole, hitRegions, frame: interactionFrame() });
     evidence.pass = evidence.steps.every(step => step.pass);
   } catch (error) {
     evidence.error = String(error?.message || error).slice(0, 300);
@@ -290,11 +304,18 @@ function restoreWidget() {
   const frame = defaultFrame();
   if (window && !window.isDestroyed()) {
     surfaceExpanded = false;
+    surfaceReason = 'restore-widget';
+    // Do not let the old page remain visible or keep its old hit rectangles
+    // while BrowserWindow.reload() is asynchronous. The new renderer must
+    // complete whale-ready and report the role region again before input is
+    // enabled.
+    rendererReady = false;
     layoutConfigReady = false;
     layoutReady = false;
     lastWidgetSize = '';
     lastNativeWidgetSize = '';
     lastNativeRootOffset = '';
+    lastCursor = '';
     hitRegions = [];
     window.setBounds(frame);
     setInputEnabled(false, 'restore-widget');

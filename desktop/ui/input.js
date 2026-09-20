@@ -59,7 +59,17 @@
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
     const margin = 4;
     const nodes = [pet, ...document.querySelectorAll('.dshwv-pop-open,.dshwv-menu-btn-visible')].filter(el => {
-      try { return visible(el) && getComputedStyle(el).pointerEvents !== 'none'; } catch { return false; }
+      try {
+        if (!visible(el)) return false;
+        // The role image and the upstream SVG bubble deliberately use
+        // pointer-events:none: the document capture handler owns the gesture.
+        // They must still be native hit regions, otherwise an ignored
+        // transparent BrowserWindow can only be re-enabled over the menu
+        // button and the role becomes impossible to click after a reload or
+        // Restore Widget action.
+        const delegatedGesture = el === pet || el.matches?.('.dshwv-pop-open');
+        return delegatedGesture || getComputedStyle(el).pointerEvents !== 'none';
+      } catch { return false; }
     });
     const regions = nodes.map(el => {
       const box = el.getBoundingClientRect();
