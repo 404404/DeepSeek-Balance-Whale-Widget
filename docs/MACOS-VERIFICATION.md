@@ -11,7 +11,7 @@ bash scripts/create-dmg.sh
 bash scripts/smoke-mac-app.sh
 ```
 
-`smoke-mac-app.sh` 启动 `dist/AI Balance Whale.app/Contents/MacOS/AI Balance Whale`，使用临时 `WHALE_HOME`，等待 `startup-timings.json` 出现 `imageAndInputReady` 和 `interactive`，再结束该进程。它不会读取或修改开发者的 Codex 登录状态。
+`smoke-mac-app.sh` 启动 `dist/AI Balance Whale.app/Contents/MacOS/AI Balance Whale`，使用临时 `WHALE_HOME`，等待 `startup-timings.json` 出现 `imageAndInputReady` 和 `interactive`，并要求实际打包资源写出 `input-routing.json` 与 `interaction-test.json`。后者在同一进程内检查旧窗口迁移、悬停按钮不扩窗、缩放往返、菜单展开的根节点锚点和 `sendInputEvent` 经过 preload/DOM/原生处理链；证据明确标记 `syntheticInputOnly`，不能替代真实 macOS 物理鼠标和透明窗口穿透验收。它不会读取或修改开发者的 Codex 登录状态。
 
 ## 人工验收
 
@@ -31,7 +31,7 @@ bash scripts/smoke-mac-app.sh
 
 ## CI 门禁
 
-`macOS standalone CI` 使用 `macos-14`、Node 24 和 arm64 Electron，执行 JS 语法检查、App bundle 资源/版本/arm64/codesign 检查、DMG 只读挂载检查和实际打包 App smoke。Release workflow 对同一次 checkout 重复这些检查，然后才创建 Release。CI 没有真实密钥，也不会读取维护者本机凭据。
+`macOS standalone CI` 使用 `macos-14`、Node 24 和 arm64 Electron，执行 JS 语法检查、几何/拖动阈值逻辑测试、App bundle 资源/版本/arm64/codesign 检查、DMG 只读挂载检查和实际打包 App smoke。smoke 产物同时保存启动、DOM 几何、命中区域、输入路由和交互步骤证据；其中合成输入与 OS 层鼠标穿透分别报告。Release workflow 对同一次 checkout 重复这些检查，然后才创建 Release。CI 没有真实密钥，也不会读取维护者本机凭据。
 
 ### 未能在当前环境完成的项目
 
