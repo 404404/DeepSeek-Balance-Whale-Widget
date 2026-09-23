@@ -6,6 +6,7 @@ const { UiStateStore } = require('./ui-state-store.cjs');
 const { shutdownCompanion } = require('./lifecycle.cjs');
 const { externalWebUrl } = require('./external-links.cjs');
 const { pathToFileURL } = require('node:url');
+const { targetWidgetSize, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
 
 const root = path.resolve(__dirname, '..');
 const MIN_WIDGET_SIZE = 122;
@@ -14,6 +15,7 @@ const MAX_WIDGET_SIZE = 625;
 const args = process.argv.slice(1);
 const fixture = process.env.WHALE_DESKTOP_TEST === '1';
 const layoutTest = fixture || process.argv.includes('--whale-render-test');
+const interactionTest = process.argv.includes('--whale-interaction-test');
 const explicitDataDir = args.find(value => value.startsWith('--whale-data='))?.slice('--whale-data='.length);
 const productName = 'DeepSeek-Balance-Whale-Widget';
 const defaultDataDir = path.join(os.homedir(), 'Library', 'Application Support', productName);
@@ -44,15 +46,23 @@ let inputEnabled = false;
 let keyboardFocus = false;
 let manuallyHidden = false;
 let surfaceExpanded = false;
+let pendingSurface = null;
+let surfaceReason = 'none';
 let nativeDrag = null;
 let quitting = false;
 let visibilityWatchdog = null;
+let inputRoutingWatchdog = null;
 let frameSaveTimer = null;
 let lastCursor = '';
 let presents = 0;
 let trustedGestureAt = 0;
 let lastWidgetSize = '';
+let lastNativeWidgetSize = '';
+let lastNativeRootOffset = '';
 let lastLayoutDiagnostic = null;
+let hitRegions = [];
+let inputRoutingReason = 'startup';
+let interactionTestStarted = false;
 const rendererErrors = [];
 const fixtureOpenedLinks = [];
 const stateFile = path.join(dataDir, 'ui-state.json');
@@ -77,21 +87,12 @@ function workAreaFor(frame) {
   try { return screen.getDisplayMatching(frame).workArea; } catch { return screen.getPrimaryDisplay().workArea; }
 }
 function clampFrame(frame) {
-  const area = workAreaFor(frame);
-  const width = Math.min(Math.max(MIN_WIDGET_SIZE, Math.round(frame.width)), Math.max(MIN_WIDGET_SIZE, area.width));
-  const height = Math.min(Math.max(MIN_WIDGET_SIZE, Math.round(frame.height)), Math.max(MIN_WIDGET_SIZE, area.height));
-  return {
-    x: Math.max(area.x, Math.min(Math.round(frame.x), area.x + area.width - width)),
-    y: Math.max(area.y, Math.min(Math.round(frame.y), area.y + area.height - height)),
-    width,
-    height,
-  };
+  return clampFrameToArea(frame, workAreaFor(frame), MIN_WIDGET_SIZE);
 }
 function configuredWidgetSize() {
   const saved = read(path.join(dataDir, '.dshw-size.json'), {});
   const scale = Number(saved?.scale);
-  const raw = Number.isFinite(scale) && scale >= 0.6 && scale <= 2.5 ? 250 * scale : DEFAULT_WIDGET_SIZE;
-  return Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(raw)));
+  return targetWidgetSize(scale, { base: 250, min: MIN_WIDGET_SIZE, max: MAX_WIDGET_SIZE });
 }
 function defaultFrame() {
   const area = screen.getPrimaryDisplay().workArea;
@@ -138,6 +139,160 @@ function sendCursor(force = false) {
   const encoded = point.x + ',' + point.y;
   if (force || encoded !== lastCursor) { lastCursor = encoded; window.webContents.send('whale-cursor', point); }
 }
+function setInputEnabled(enabled, reason = 'state') {
+  if (!window || window.isDestroyed()) return;
+  const next = !!enabled;
+  inputRoutingReason = reason;
+  if (next === inputEnabled) return;
+  inputEnabled = next;
+  try { window.setIgnoreMouseEvents(!next, { forward: true }); } catch {}
+  writeInputRoutingDiagnostic();
+}
+function cursorInsideHitRegion() {
+  if (!window || window.isDestroyed() || !hitRegions.length) return false;
+  try {
+    const bounds = window.getContentBounds();
+    const cursor = screen.getCursorScreenPoint();
+    return cursorInRegions(cursor, bounds, hitRegions);
+  } catch { return false; }
+}
+function updateNativeInputRouting() {
+  if (!window || window.isDestroyed() || !rendererReady || !window.isVisible()) {
+    setInputEnabled(false, 'renderer-not-visible');
+    return;
+  }
+  // Do not ask the renderer to toggle setIgnoreMouseEvents on every forwarded
+  // mouse move. On macOS a transparent ignored BrowserWindow can stop
+  // forwarding the very event needed to make it interactive, which causes a
+  // click/hover race and apparent window flight. The main process owns this
+  // state and polls the stable screen-coordinate hit rectangle instead.
+  const next = !!nativeDrag || surfaceExpanded || cursorInsideHitRegion();
+  setInputEnabled(next, next ? (nativeDrag ? 'native-drag' : surfaceExpanded ? 'expanded-surface' : 'role-hit-region') : 'outside-role');
+  sendCursor();
+}
+function writeInputRoutingDiagnostic() {
+  if (!layoutTest || !window || window.isDestroyed()) return;
+  try {
+    save(path.join(dataDir, 'input-routing.json'), {
+      mode: 'native-screen-hit-region',
+      enabled: inputEnabled,
+      reason: inputRoutingReason,
+      rendererReady,
+      surfaceExpanded,
+      surfaceReason,
+      nativeDrag: !!nativeDrag,
+      contentBounds: window.getContentBounds(),
+      hitRegions,
+      at: new Date().toISOString(),
+    });
+  } catch {}
+}
+function interactionFrame() {
+  return window && !window.isDestroyed() ? window.getBounds() : null;
+}
+function interactionDelay(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+async function interactionRendererEval(source) {
+  if (!window || window.isDestroyed() || window.webContents.isDestroyed()) throw new Error('renderer unavailable');
+  return window.webContents.executeJavaScript(source, true);
+}
+async function waitForInteractionFrame(width, height) {
+  let frame = interactionFrame();
+  for (let i = 0; i < 80; i += 1) {
+    frame = interactionFrame();
+    if (frame && Math.abs(frame.width - width) <= 2 && Math.abs(frame.height - height) <= 2) return frame;
+    await interactionDelay(20);
+  }
+  return frame;
+}
+async function waitForInteractionReady() {
+  for (let i = 0; i < 120; i += 1) {
+    if (rendererReady && layoutReady && window && !window.isDestroyed() && window.isVisible()) return true;
+    await interactionDelay(20);
+  }
+  return false;
+}
+async function runInteractionTest() {
+  if (interactionTestStarted || !window || window.isDestroyed()) return;
+  interactionTestStarted = true;
+  const evidence = { version: 'mac-interaction-2', syntheticInputOnly: true, osPointerValidated: false, pass: false, steps: [] };
+  try {
+    for (let i = 0; i < 100 && (!layoutReady || !window.isVisible()); i += 1) await interactionDelay(20);
+    const initial = interactionFrame();
+    const initialScale = Number(await interactionRendererEval("Number.parseFloat(getComputedStyle(document.querySelector('.dshwv-root')).getPropertyValue('--dshw-scale'))")) || 1.5;
+    await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r ? {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height} : null; })()");
+    await interactionRendererEval("(() => { const b=document.querySelector('.dshwv-menu-btn'); b?.classList.add('dshwv-menu-btn-visible'); return !!b; })()");
+    await interactionDelay(220);
+    const hoverFrame = interactionFrame();
+    const hoverStable = !!initial && !!hoverFrame && JSON.stringify({ x: initial.x, y: initial.y, width: initial.width, height: initial.height }) === JSON.stringify({ x: hoverFrame.x, y: hoverFrame.y, width: hoverFrame.width, height: hoverFrame.height });
+    evidence.steps.push({ name: 'hover-button-no-resize', pass: hoverStable, before: initial, after: hoverFrame });
+
+    const scaleResults = [];
+    let previousFrame = initial;
+    for (const scale of [0.6, 1.6, 2.5, 1.0]) {
+      await interactionRendererEval(`window.__whaleRenderTest?.scale(${scale})`);
+      const expected = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * scale)));
+      const expectedFrame = previousFrame ? resizeFrameKeepingBottomRight(previousFrame, expected, expected, workAreaFor(previousFrame), MIN_WIDGET_SIZE) : null;
+      const frame = await waitForInteractionFrame(expected, expected);
+      const dom = await interactionRendererEval("(() => { const root=document.querySelector('.dshwv-root')?.getBoundingClientRect(); const img=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return {root:root && {left:root.left,top:root.top,width:root.width,height:root.height}, image:img && {left:img.left,top:img.top,width:img.width,height:img.height}, scrollWidth:document.documentElement.scrollWidth, scrollHeight:document.documentElement.scrollHeight}; })()");
+      const nextAnchor = frame ? { right: frame.x + frame.width, bottom: frame.y + frame.height } : null;
+      const sizePass = !!frame && !!dom?.root && Math.abs(dom.root.width - expected) <= 3 && Math.abs(dom.root.height - expected) <= 3 && Math.abs(frame.width - expected) <= 3 && Math.abs(frame.height - expected) <= 3;
+      const anchorPass = !!expectedFrame && !!frame && Math.abs(expectedFrame.x - frame.x) <= 3 && Math.abs(expectedFrame.y - frame.y) <= 3 && Math.abs(expectedFrame.width - frame.width) <= 3 && Math.abs(expectedFrame.height - frame.height) <= 3;
+      const visiblePass = !!dom?.image && dom.image.width > 0 && dom.image.height > 0 && dom.image.left >= dom.root.left - 2 && dom.image.top >= dom.root.top - 2 && dom.image.left + dom.image.width <= dom.root.left + dom.root.width + 2 && dom.image.top + dom.image.height <= dom.root.top + dom.root.height + 2 && dom.scrollWidth <= expected + 2 && dom.scrollHeight <= expected + 2;
+      scaleResults.push({ scale, expected, expectedFrame, frame, dom, sizePass, anchorPass, visiblePass });
+      previousFrame = frame;
+    }
+    evidence.steps.push({ name: 'same-run-scale-roundtrip', pass: scaleResults.every(step => step.sizePass && step.anchorPass && step.visiblePass), results: scaleResults });
+
+    const beforeMenuFrame = interactionFrame();
+    const beforeMenuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {right:r.right,bottom:r.bottom}; })()");
+    await interactionRendererEval("window.__whaleRenderTest?.menu(true)");
+    await interactionDelay(300);
+    const menuFrame = interactionFrame();
+    const menuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {right:r.right,bottom:r.bottom}; })()");
+    const menuRoleStable = !!beforeMenuFrame && !!menuFrame && !!beforeMenuDom && !!menuDom && Math.abs(beforeMenuFrame.x + beforeMenuDom.right - (menuFrame.x + menuDom.right)) <= 3 && Math.abs(beforeMenuFrame.y + beforeMenuDom.bottom - (menuFrame.y + menuDom.bottom)) <= 3;
+    evidence.steps.push({ name: 'open-menu-keeps-role-anchor', pass: menuRoleStable, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: menuFrame, role: menuDom } });
+    await interactionRendererEval("window.__whaleRenderTest?.menu(false)");
+    await interactionDelay(300);
+
+    const role = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,left:r.left,top:r.top,right:r.right,bottom:r.bottom}; })()");
+    const roleRegionPass = !!role && hitRegions.some(region => region.left <= role.left + 2 && region.top <= role.top + 2 && region.left + region.width >= role.right - 2 && region.top + region.height >= role.bottom - 2);
+    evidence.steps.push({ name: 'role-hit-region-before-input', pass: roleRegionPass, role, hitRegions });
+    setInputEnabled(true, 'synthetic-input-test');
+    if (!role) throw new Error('role geometry missing for input test');
+    const inputX = Math.round(role.x), inputY = Math.round(role.y);
+    const sendRoleClick = async () => {
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: inputX, y: inputY });
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: inputX, y: inputY, button: 'left', clickCount: 1 });
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: inputX, y: inputY, button: 'left', clickCount: 1 });
+      await interactionDelay(900);
+      return interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    };
+    // Use a deterministic three-item queue, then drive it through the same
+    // packaged BrowserWindow input path used by the smoke test. This keeps
+    // random text and quota refreshes out of the click-state assertion.
+    await interactionRendererEval("window.__whaleRenderTest?.queue([{kind:'custom',modules:[{type:'text',text:'A',size:6}]},{kind:'custom',modules:[{type:'text',text:'B',size:6}]},{kind:'custom',modules:[{type:'text',text:'C',size:6}]}])");
+    const beforeClick = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    const afterClick = await sendRoleClick();
+    const clickPass = !!beforeClick && !!afterClick && afterClick.shown === true && afterClick.epoch !== beforeClick.epoch;
+    evidence.steps.push({ name: 'synthetic-input-chain-click', pass: clickPass, before: beforeClick, after: afterClick });
+    const afterSecondClick = await sendRoleClick();
+    const secondClickPass = !!afterClick && !!afterSecondClick && afterSecondClick.shown === true && afterSecondClick.epoch !== afterClick.epoch;
+    evidence.steps.push({ name: 'synthetic-input-chain-second-click-advances', pass: secondClickPass, first: afterClick, second: afterSecondClick });
+    await interactionRendererEval(`window.__whaleRenderTest?.scale(${initialScale})`);
+    const restoredFrame = await waitForInteractionFrame(Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))), Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))));
+    const restorePass = !!restoredFrame;
+    evidence.steps.push({ name: 'restore-persisted-scale', pass: restorePass, initialScale, frame: restoredFrame });
+    restoreWidget();
+    const restoredReady = await waitForInteractionReady();
+    const restoredRole = restoredReady ? await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {left:r.left,top:r.top,right:r.right,bottom:r.bottom}; })()") : null;
+    const restoredRoleRegionPass = !!restoredRole && hitRegions.some(region => region.left <= restoredRole.left + 2 && region.top <= restoredRole.top + 2 && region.left + region.width >= restoredRole.right - 2 && region.top + region.height >= restoredRole.bottom - 2);
+    evidence.steps.push({ name: 'restore-widget-reports-role-hit-region', pass: restoredReady && restoredRoleRegionPass, restoredReady, role: restoredRole, hitRegions, frame: interactionFrame() });
+    evidence.pass = evidence.steps.every(step => step.pass);
+  } catch (error) {
+    evidence.error = String(error?.message || error).slice(0, 300);
+  }
+  try { save(path.join(dataDir, 'interaction-test.json'), evidence); } catch {}
+}
 function visibility() {
   if (!window || window.isDestroyed()) return;
   // Do not reveal a window whose first DOM measurement still reflects the
@@ -159,12 +314,21 @@ function restoreWidget() {
   const frame = defaultFrame();
   if (window && !window.isDestroyed()) {
     surfaceExpanded = false;
+    surfaceReason = 'restore-widget';
+    // Do not let the old page remain visible or keep its old hit rectangles
+    // while BrowserWindow.reload() is asynchronous. The new renderer must
+    // complete whale-ready and report the role region again before input is
+    // enabled.
+    rendererReady = false;
     layoutConfigReady = false;
     layoutReady = false;
     lastWidgetSize = '';
+    lastNativeWidgetSize = '';
+    lastNativeRootOffset = '';
+    lastCursor = '';
+    hitRegions = [];
     window.setBounds(frame);
-    window.setIgnoreMouseEvents(false);
-    window.setIgnoreMouseEvents(true, { forward: true });
+    setInputEnabled(false, 'restore-widget');
     scheduleFrameSave();
     window.webContents.reload();
   }
@@ -187,29 +351,87 @@ async function openWebLink(value, gestureRequired = true) {
   } catch { return false; }
 }
 function resizeKeepingBottomRight(width, height) {
-  if (!window || window.isDestroyed() || nativeDrag) return;
+  if (!window || window.isDestroyed() || nativeDrag) return null;
   const current = window.getBounds();
-  const target = clampFrame({ x: current.x + current.width - width, y: current.y + current.height - height, width, height });
-  if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return;
+  const target = resizeFrameKeepingBottomRight(current, width, height, workAreaFor(current), MIN_WIDGET_SIZE);
+  if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
   window.setBounds(target);
   scheduleFrameSave();
   sendCursor(true);
+  updateNativeInputRouting();
+  return target;
 }
-function setSurface(expanded) {
-  if (!window || window.isDestroyed() || surfaceExpanded === expanded) return;
-  surfaceExpanded = expanded;
-  if (expanded) resizeKeepingBottomRight(760, 700);
-  else if (lastWidgetSize) {
-    const [width, height] = lastWidgetSize.split('x').map(Number);
+function requestRendererLayout() {
+  if (window && !window.isDestroyed() && rendererReady) {
+    try { window.webContents.send('whale-layout-request'); } catch {}
+  }
+}
+function sendNativeRootOffset(left, top) {
+  if (!window || window.isDestroyed() || !rendererReady) return;
+  const value = { left: Math.round(Number(left) || 0), top: Math.round(Number(top) || 0) };
+  const key = value.left + ',' + value.top;
+  if (key === lastNativeRootOffset) return;
+  lastNativeRootOffset = key;
+  try { window.webContents.send('whale-native-root-offset', value); } catch {}
+}
+function compactWidgetDimensions() {
+  if (lastWidgetSize) {
+    const values = lastWidgetSize.split('x').map(Number);
+    if (values.length === 2 && values.every(Number.isFinite)) return values;
+  }
+  const size = configuredWidgetSize();
+  return [size, size];
+}
+function reportNativeWidgetSize(requestedWidth, requestedHeight) {
+  if (!window || window.isDestroyed() || surfaceExpanded || !rendererReady) return;
+  const native = window.getContentBounds();
+  const constrained = native.width + 2 < requestedWidth || native.height + 2 < requestedHeight;
+  const key = native.width + 'x' + native.height + ':' + constrained;
+  if (key === lastNativeWidgetSize) return;
+  lastNativeWidgetSize = key;
+  try { window.webContents.send('whale-native-widget-size', { width: native.width, height: native.height, constrained }); } catch {}
+}
+function applySurfaceGeometry(expanded) {
+  if (!window || window.isDestroyed() || nativeDrag) return;
+  if (expanded) {
+    const before = window.getBounds();
+    const screenAnchor = { right: before.x + before.width, bottom: before.y + before.height };
+    const target = resizeKeepingBottomRight(760, 700) || window.getBounds();
+    const [width, height] = compactWidgetDimensions();
+    // The role is laid out at the compact root's bottom/right. Preserve its
+    // pre-expansion screen anchor when the expanded frame fits; when the
+    // display edge clamps that frame, clamp the local offset to the feasible
+    // part of the new content instead of moving the role to the new corner.
+    const offset = surfaceRootOffset(target, width, height, screenAnchor);
+    sendNativeRootOffset(offset.left, offset.top);
+  } else {
+    const [width, height] = compactWidgetDimensions();
     resizeKeepingBottomRight(width, height);
-  } else resizeKeepingBottomRight(DEFAULT_WIDGET_SIZE, DEFAULT_WIDGET_SIZE);
+    sendNativeRootOffset(0, 0);
+  }
+  requestRendererLayout();
+}
+function setSurface(expanded, reason) {
+  if (!window || window.isDestroyed()) return;
+  const next = !!expanded;
+  surfaceReason = typeof reason === 'string' && reason ? reason.slice(0, 80) : (next ? 'expanded-surface' : 'none');
+  if (surfaceExpanded === next && pendingSurface === null) return;
+  surfaceExpanded = next;
+  if (nativeDrag) {
+    // Keep the newest request. Applying it from endNativeDrag avoids a
+    // permanently expanded flag when a menu opens during a gesture.
+    pendingSurface = next;
+    return;
+  }
+  pendingSurface = null;
+  applySurfaceGeometry(next);
 }
 function setWidgetSize(size) {
   // The page reports its content geometry in one direction only. It must never
   // resize the native window while a native drag is in progress.
   if (surfaceExpanded || nativeDrag || !layoutConfigReady || !size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
-  const width = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(size.width)));
-  const height = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(size.height)));
+  const width = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(Number(size.requestedWidth) || Number(size.width))));
+  const height = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(Number(size.requestedHeight) || Number(size.height))));
   const key = width + 'x' + height;
   if (key === lastWidgetSize) return;
   lastWidgetSize = key;
@@ -219,8 +441,12 @@ function setWidgetSize(size) {
     // contract. Comparing against them avoids a second screen-size formula
     // disagreeing with AppKit/Electron on a constrained display.
     const native = window.getContentBounds();
-    layoutReady = Math.abs(width - native.width) <= 2 && Math.abs(height - native.height) <= 2;
+    const area = workAreaFor(native);
+    const effectiveWidth = Math.min(width, Math.max(MIN_WIDGET_SIZE, area.width));
+    const effectiveHeight = Math.min(height, Math.max(MIN_WIDGET_SIZE, area.height));
+    layoutReady = Math.abs(effectiveWidth - native.width) <= 2 && Math.abs(effectiveHeight - native.height) <= 2;
   }
+  reportNativeWidgetSize(width, height);
   writeLayoutDiagnostic();
   visibility();
 }
@@ -234,22 +460,45 @@ function cursorScreenPoint(fallback) {
 function startNativeDrag(point) {
   if (!window || window.isDestroyed() || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
   const cursor = cursorScreenPoint(point);
-  nativeDrag = { x: cursor.x, y: cursor.y, frame: window.getBounds() };
+  nativeDrag = { x: cursor.x, y: cursor.y, frame: window.getBounds(), moved: false };
+  setInputEnabled(true, 'native-drag');
 }
 function moveNativeDrag(point) {
   if (!nativeDrag || !window || window.isDestroyed()) return;
   const cursor = cursorScreenPoint(point);
   if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return;
+  const movement = nativeDragMovement({ x: nativeDrag.x, y: nativeDrag.y }, cursor, nativeDrag.moved, 3);
+  nativeDrag.moved = movement.moved;
+  if (!movement.shouldMove) return;
+  if (!nativeDrag.notifiedMoved) {
+    nativeDrag.notifiedMoved = true;
+    try { window.webContents.send('whale-native-drag-moved'); } catch {}
+  }
   const frame = nativeDrag.frame;
-  window.setPosition(Math.round(frame.x + cursor.x - nativeDrag.x), Math.round(frame.y + cursor.y - nativeDrag.y));
+  window.setPosition(Math.round(frame.x + movement.dx), Math.round(frame.y + movement.dy));
 }
-function endNativeDrag() { if (nativeDrag) { nativeDrag = null; scheduleFrameSave(); writeLayoutDiagnostic(); } }
+function endNativeDrag() {
+  if (!nativeDrag) return;
+  const completed = nativeDrag.moved;
+  nativeDrag = null;
+  if (completed) scheduleFrameSave();
+  writeLayoutDiagnostic();
+  if (pendingSurface !== null) {
+    const next = pendingSurface;
+    pendingSurface = null;
+    applySurfaceGeometry(next);
+  }
+  updateNativeInputRouting();
+  requestRendererLayout();
+}
 function writeLayoutDiagnostic() {
   if (!layoutTest || !lastLayoutDiagnostic || !window || window.isDestroyed()) return;
   try { save(path.join(dataDir, 'layout-diagnostic.json'), { ...lastLayoutDiagnostic, nativeFrame: window.getBounds(), at: new Date().toISOString() }); } catch {}
 }
 function handleDisplayChange() {
   if (!window || window.isDestroyed() || surfaceExpanded) return;
+  lastWidgetSize = '';
+  lastNativeWidgetSize = '';
   const fixed = clampFrame(window.getBounds());
   const current = window.getBounds();
   if (JSON.stringify(fixed) !== JSON.stringify(current)) window.setBounds(fixed);
@@ -345,16 +594,26 @@ if (!lock) {
     window.on('moved', scheduleFrameSave);
     window.on('closed', () => { window = null; });
     window.webContents.on('console-message', (_event, ...args) => {
-      if (!fixture) return;
+      if (!layoutTest) return;
       const detail = args[0];
-      if (typeof detail === 'object' ? detail.level === 'error' : detail === 3) rendererErrors.push(typeof detail === 'object' ? detail.message : args[1]);
+      const level = typeof detail === 'object' ? detail.level : detail;
+      if (!(level === 3 || level === 'error')) return;
+      const raw = typeof detail === 'object' ? detail.message : args[1];
+      const message = String(raw || 'renderer console error')
+        .replace(/(authorization|bearer|cookie|token|auth\.json)\s*[:=]\s*[^\s,;]+/ig, '$1=<redacted>')
+        .slice(0, 500);
+      rendererErrors.push({ message, line: Number(args[2]) || null, source: String(args[3] || '').slice(0, 200) });
+      while (rendererErrors.length > 20) rendererErrors.shift();
+      try { save(path.join(dataDir, 'renderer-errors.json'), { errors: rendererErrors, at: new Date().toISOString() }); } catch {}
     });
     window.webContents.on('render-process-gone', (_event, details) => {
       rendererReady = false;
       layoutConfigReady = false;
       layoutReady = false;
-      inputEnabled = false;
-      try { window.setIgnoreMouseEvents(true, { forward: true }); } catch {}
+      hitRegions = [];
+      lastNativeRootOffset = '';
+      pendingSurface = null;
+      setInputEnabled(false, 'renderer-gone');
       try { save(path.join(dataDir, 'renderer-gone.json'), { at: new Date().toISOString(), reason: details?.reason || 'unknown' }); } catch {}
       if (!quitting && !window.isDestroyed()) setTimeout(() => { if (!window.isDestroyed()) window.webContents.reload(); }, 500);
     });
@@ -362,9 +621,11 @@ if (!lock) {
       rendererReady = false;
       layoutConfigReady = false;
       layoutReady = false;
-      inputEnabled = false;
+      hitRegions = [];
+      lastNativeRootOffset = '';
+      pendingSurface = null;
+      setInputEnabled(false, 'navigation-start');
       setKeyboardFocus(false);
-      window.setIgnoreMouseEvents(true, { forward: true });
     });
     window.webContents.setWindowOpenHandler(({ url }) => { openWebLink(url).catch(() => {}); return { action: 'deny' }; });
     window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(UI_ORIGIN + '/')) event.preventDefault(); });
@@ -378,21 +639,34 @@ if (!lock) {
       if (event.sender !== window?.webContents) return;
       markStartup('imageAndInputReady');
       rendererReady = true;
+      // A reload can happen while the menu surface is expanded. Re-send the
+      // current local root offset to the new DOM instead of relying on a stale
+      // renderer cache.
+      if (surfaceExpanded) {
+        const [width, height] = compactWidgetDimensions();
+        const bounds = window.getContentBounds();
+        sendNativeRootOffset(Math.max(0, bounds.width - width), Math.max(0, bounds.height - height));
+      } else sendNativeRootOffset(0, 0);
+      updateNativeInputRouting();
       visibility();
       invalidate();
       sendCursor(true);
+      writeInputRoutingDiagnostic();
+      if (interactionTest && !interactionTestStarted) setTimeout(() => { runInteractionTest().catch(() => {}); }, 120);
     });
     ipcMain.on('whale-interactive', (event, enabled) => {
       if (event.sender !== window?.webContents || typeof enabled !== 'boolean') return;
-      // A native drag owns input until mouse-up; hover hit-test changes must
-      // not toggle ignoreMouseEvents and make the window appear to jump.
-      const next = nativeDrag ? true : enabled;
-      if (next === inputEnabled) return;
-      inputEnabled = next;
-      window.setIgnoreMouseEvents(!next, { forward: true });
+      // Kept as a compatibility message for the shared UI. Standalone macOS
+      // input is deliberately owned by updateNativeInputRouting(); accepting
+      // renderer hover toggles here recreates the forwarding race.
+      if (layoutTest) { inputRoutingReason = 'renderer-hover-ignored'; writeInputRoutingDiagnostic(); }
     });
     ipcMain.on('whale-keyboard-focus', (event, editing) => { if (event.sender === window?.webContents && typeof editing === 'boolean') setKeyboardFocus(editing); });
-    ipcMain.on('whale-surface', (event, expanded) => { if (event.sender === window?.webContents && typeof expanded === 'boolean') setSurface(expanded); });
+    ipcMain.on('whale-surface', (event, value) => {
+      if (event.sender !== window?.webContents) return;
+      if (typeof value === 'boolean') setSurface(value, value ? 'expanded-surface' : 'none');
+      else if (value && typeof value === 'object') setSurface(value.expanded, value.reason);
+    });
     ipcMain.on('whale-layout-ready', (event, size) => {
       if (event.sender !== window?.webContents) return;
       layoutConfigReady = true;
@@ -400,6 +674,20 @@ if (!lock) {
       visibility();
     });
     ipcMain.on('whale-widget-size', (event, size) => { if (event.sender === window?.webContents) setWidgetSize(size); });
+    ipcMain.on('whale-hit-region', (event, value) => {
+      if (event.sender !== window?.webContents || !value || typeof value !== 'object') return;
+      const input = Array.isArray(value.regions) ? value.regions : [value];
+      const next = input.map(region => {
+        if (!region || typeof region !== 'object') return null;
+        const values = ['left', 'top', 'width', 'height'].map(key => Number(region[key]));
+        if (!values.every(Number.isFinite) || values[2] <= 0 || values[3] <= 0 || values[2] > 2000 || values[3] > 2000) return null;
+        return { left: values[0], top: values[1], width: values[2], height: values[3] };
+      }).filter(Boolean);
+      if (!next.length) return;
+      hitRegions = next;
+      updateNativeInputRouting();
+      writeInputRoutingDiagnostic();
+    });
     ipcMain.on('whale-layout-diagnostic', (event, payload) => {
       if (!layoutTest || event.sender !== window?.webContents || !payload || typeof payload !== 'object') return;
       lastLayoutDiagnostic = payload;
@@ -439,8 +727,11 @@ if (!lock) {
     writeStartup();
     visibilityWatchdog = setInterval(visibility, 1000);
     if (visibilityWatchdog.unref) visibilityWatchdog.unref();
+    inputRoutingWatchdog = setInterval(updateNativeInputRouting, 16);
+    if (inputRoutingWatchdog.unref) inputRoutingWatchdog.unref();
     app.once('will-quit', () => {
       clearInterval(visibilityWatchdog);
+      clearInterval(inputRoutingWatchdog);
       clearTimeout(frameSaveTimer);
       globalShortcut.unregisterAll();
       screen.removeListener('display-metrics-changed', handleDisplayChange);

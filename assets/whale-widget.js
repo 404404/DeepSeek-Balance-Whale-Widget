@@ -57,6 +57,7 @@
     styleEl.textContent += '\n.dshwv-fxicon:hover{background:rgba(32,49,112,.20);color:#203170}';
     styleEl.textContent += '\n.dshwv-fxicon:focus-visible{outline:2px solid rgba(32,49,112,.55);outline-offset:1px}';
     styleEl.textContent += '\n.dshwv-fxinfo{position:fixed;z-index:27000;max-width:min(320px,calc(100vw - 16px));box-sizing:border-box;background:#fff;border:1px solid rgba(32,49,112,.35);border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.16);padding:8px 10px;color:#203170;font-size:11px;line-height:1.5;text-align:left;white-space:pre-line;pointer-events:auto;color-scheme:light}';
+    if (standaloneDesktop) styleEl.textContent += '\nhtml.desktop .dshwv-root{--dshw-base:clamp(122px,calc(250px * var(--dshw-scale)),625px)}';
     document.head.appendChild(styleEl);
     var root = document.createElement('div');
     root.className = 'dshwv-root';
@@ -4634,7 +4635,8 @@
           saveBubbleCfg({
             v: 1,
             items: items,
-            lib: bubbleLib
+            lib: bubbleLib,
+            tapAdvance: bubbleTapAdvance
           }, function (ok) {
             if (ok !== false) closeBubbleEditor();
           });
@@ -7907,7 +7909,11 @@
 
 
     var drag = null;
-
+    if (window.whaleDesktop && window.whaleDesktop.onNativeDragMoved) {
+      window.whaleDesktop.onNativeDragMoved(function () {
+        if (drag && drag.active) drag.moved = true;
+      });
+    }
 
     var bubbleShown = false;
 
@@ -8009,6 +8015,10 @@
     var bubbleRoundOn = false;
     var bubbleCfg = null;
     var bubbleLib = [];
+    // The standalone App has no separate legacy checkbox for this behavior.
+    // Keep role clicks useful by default, while honoring an explicit upstream
+    // tapAdvance:false value when an older configuration contains it.
+    var bubbleTapAdvance = true;
     function bubbleCloneModule(m) {
       var copy = JSON.parse(JSON.stringify(m || ({})));
       if (m && whaleMoneyTemplates.has(m)) whaleMoneyTemplates.set(copy, whaleMoneyTemplates.get(m));
@@ -8089,6 +8099,7 @@
           if (d && d.ok && d.config) {
             bubbleCfg = d.config;
             bubbleLib = d.config.lib && Array.isArray(d.config.lib) ? JSON.parse(JSON.stringify(d.config.lib)) : [];
+            bubbleTapAdvance = d.config.tapAdvance !== false;
             applyBubbleCfgSeq();
           }
         }).catch(function () {});
@@ -8108,6 +8119,7 @@
           requireSaved(d);
           if (d && d.ok && d.config) {
             bubbleCfg = d.config;
+            bubbleTapAdvance = d.config.tapAdvance !== false;
             applyBubbleCfgSeq();
             if (okFn) okFn();
           } else if (okFn) okFn(false);
@@ -8774,6 +8786,13 @@
           return;
         }
         if (!bubbleRoundOn) return;
+        // Role clicks use the same queue as bubble clicks. The previous
+        // standalone path always treated seqIdx === 1 as a TTL refresh, so a
+        // second click could never reach the next configured item.
+        if (bubbleTapAdvance) {
+          bubbleNext();
+          return;
+        }
         if (bubbleSeqIdx <= 1) {
           bubbleResetTtl();
           return;
@@ -8977,6 +8996,7 @@
     }
     function settle() {
       if (standaloneDesktop) {
+        root.style.removeProperty('--dshw-base');
         state.left = 0;
         state.top = 0;
         express();
@@ -9456,12 +9476,12 @@
     }
     function positionMenu() {
       try {
-        var r = positioner.getBoundingClientRect();
+        var r = standaloneDesktop ? root.getBoundingClientRect() : positioner.getBoundingClientRect();
         var b = menuBtn.getBoundingClientRect();
         var vp = viewport();
-        var onLeft = r.left + root.offsetWidth / 2 < vp.w / 2;
+        var onLeft = r.left + r.width / 2 < vp.w / 2;
         var width = menuBox.offsetWidth, height = menuBox.offsetHeight;
-        var assetTop = r.top + root.offsetHeight * (1 - 0.5945);
+        var assetTop = r.top + r.height * (1 - 0.5945);
         menuBox.style.left = clamp(onLeft ? b.left : b.right - width, 8, Math.max(8, vp.w - width - 8)) + 'px';
         menuBox.style.right = 'auto';
         menuBox.style.top = clamp(assetTop - height - 6, 8, Math.max(8, vp.h - height - 8)) + 'px';
@@ -11092,12 +11112,19 @@
       WhaleRendering.hitCache.prepare(url || IMG_URL);
     }
     function whaleLayoutRect() {
-      var origin = positioner.getBoundingClientRect();
+      var origin = standaloneDesktop ? root.getBoundingClientRect() : positioner.getBoundingClientRect();
       var width = root.offsetWidth, height = root.offsetHeight;
       return { left: origin.left, top: origin.top, right: origin.left + width, bottom: origin.top + height, width: width, height: height };
     }
     function isWhaleHit(e) {
-      return !!e && WhaleRendering.hitCache.hit(img, e.clientX, e.clientY, WhaleRendering.mirrorScale(root) < 0);
+      if (!e || !img || !img.complete || !img.naturalWidth) return false;
+      if (WhaleRendering.hitCache.hit(img, e.clientX, e.clientY, WhaleRendering.mirrorScale(root) < 0)) return true;
+      // Keep the interaction bounded to the role image while the alpha cache
+      // is warming up or the animated transparent edge changes. The old code
+      // returned false for that short interval, so the native panel stayed
+      // ignored and a click could never start.
+      var rect = img.getBoundingClientRect();
+      return e.clientX >= rect.left && e.clientX < rect.right && e.clientY >= rect.top && e.clientY < rect.bottom;
     }
     function onDocPointerDown(e) {
       if (e.target && e.target.closest) {
@@ -11150,13 +11177,19 @@
       if (!drag || !drag.active) return;
       var dx = e.clientX - drag.startX;
       var dy = e.clientY - drag.startY;
-      if (dx * dx + dy * dy >= CLICK_SQ) drag.moved = true;
       if (drag.native) {
+        // The native host moves the window in screen/DIP coordinates. Use the
+        // same coordinate system for the gesture threshold; clientX/Y can
+        // remain nearly constant after the window follows the cursor.
         var sx = Number.isFinite(e.screenX) ? e.screenX : e.clientX;
         var sy = Number.isFinite(e.screenY) ? e.screenY : e.clientY;
+        var sdx = sx - drag.startScreenX;
+        var sdy = sy - drag.startScreenY;
+        if (sdx * sdx + sdy * sdy >= CLICK_SQ) drag.moved = true;
         if (window.whaleDesktop.dragMove) window.whaleDesktop.dragMove({ x: sx, y: sy });
         return;
       }
+      if (dx * dx + dy * dy >= CLICK_SQ) drag.moved = true;
       state.left = clamp(drag.origLeft + dx, 0, Math.max(0, drag.vp.w - drag.w));
       state.top = clamp(drag.origTop + dy, 0, Math.max(0, drag.vp.h - drag.h));
       express();
@@ -11311,9 +11344,15 @@
       }
     }
     window.addEventListener('resize', function () {
-      if (standaloneDesktop) return;
+      if (standaloneDesktop) {
+        if (menuOpen) positionMenu();
+        return;
+      }
       if (state.h === null && state.v === null && applyAnchorPos()) return;
       settle();
+    });
+    window.addEventListener('whale-native-root-offset', function () {
+      if (standaloneDesktop && menuOpen) positionMenu();
     });
     var rect0 = root.getBoundingClientRect();
     state.left = standaloneDesktop ? 0 : rect0.left;
@@ -11349,6 +11388,7 @@
         openHistory: openUsageRecordsWindow,
         showCost: showCostBubble,
         open: whaleClick,
+        menu: function (open) { if (open && !menuOpen) toggleMenu(); else if (!open && menuOpen) closeMenu(); return menuOpen; },
         queue: function (items) { hideBubble(); bubbleSeq = items; },
         place: function (x, y, flip) { state.left = x; state.top = y; state.flip = !!flip; express(); },
         scale: setScale, role: applyRole,

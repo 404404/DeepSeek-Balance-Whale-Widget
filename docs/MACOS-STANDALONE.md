@@ -17,15 +17,16 @@
 
 上游脚本仍负责点击队列、按压/松开动画、气泡、角色命中测试和设置弹窗。独立宿主只提供几个受控 bridge 消息：
 
-- `ready`、`interactive`、`keyboardFocus`：渲染 ready 与透明区域鼠标穿透；
-- `surface`、`layoutReady`、`widgetSize`：菜单/编辑器打开时扩大窗口，关闭后按人偶几何缩回；前端先完成持久化缩放配置握手，再允许 DOM → 原生尺寸更新，不再由原生调整后反写网页位置。
-- `dragStart`、`dragMove`、`dragEnd`：原生层以 `screen.getCursorScreenPoint()` 读取真实屏幕坐标，渲染器的 `clientX` 只用于点击/拖动阈值，避免窗口移动后坐标换算造成跳动。
+- `ready`、`interactive`、`keyboardFocus`：渲染就绪、设置页焦点和兼容输入状态；macOS standalone 不接受 renderer hover 消息来切换穿透；
+- `hitRegion`、`surface`、`layoutReady`、`widgetSize`：renderer 报告有限的角色/气泡/菜单按钮矩形。主进程用全局屏幕 DIP 光标判断是否接收输入；按钮悬停不扩窗，只有实际打开菜单、弹窗或编辑面板才扩大窗口。`native-root-offset` 在扩展 surface 时把紧凑根节点放回原屏幕锚点，关闭后清零，不把扩展 frame 当作位置保存。
+- `layoutRequest`、`nativeWidgetSize`：原生变更或拖动延迟尺寸请求后，renderer 清除“已发送”缓存并重新报告最新 DOM；不会形成 DOM→原生→DOM 的持续 resize 回环。
+- `dragStart`、`dragMove`、`dragEnd`：原生层以 `screen.getCursorScreenPoint()` 读取真实屏幕坐标，renderer 也用同一屏幕坐标判断阈值；超过阈值后本次手势永久是拖动，松手不再触发点击。
 
 独立模式下原生窗口是唯一的屏幕几何所有者：`window-state.json` 只恢复位置锚点，窗口宽高按 `.dshw-size.json` 的缩放重新计算（默认 1.5，对应约 375×375 DIP）。旧版 122×122 或 248×274 等尺寸会在启动时保留右下锚点并自动迁移，不需要删除偏好。网页端历史 `dshw-pos` 仍可保存在快照中，但独立模式不再应用它，避免把网页视口坐标重新套到原生窗口。
 
 调整缩放时仅在 DOM 尺寸实际变化后更新原生窗口；MutationObserver/动画帧不会再持续发送尺寸协商消息。人偶关闭气泡时保持窗口底部锚点，打开设置时暂时扩大原生窗口，关闭后恢复当前人偶尺寸。
 
-空白区域继续通过 `setIgnoreMouseEvents(..., { forward: true })` 穿透；仅人偶、气泡、菜单和编辑器表面打开交互，不创建覆盖整个桌面的可点击层。菜单栏“恢复人偶位置”只恢复窗口位置/尺寸并重载渲染器，不触碰 API 配置、账本或用户素材。
+空白区域继续通过主进程根据屏幕命中区域调用 `setIgnoreMouseEvents(..., { forward: true })` 穿透；仅人偶、气泡、按钮和明确打开的编辑表面接收输入，不创建覆盖整个桌面的可点击层。菜单栏“恢复人偶位置”只恢复窗口位置/尺寸并重载渲染器，不触碰 API 配置、账本或用户素材。`--whale-interaction-test` 会把状态写入隔离数据目录，但只使用合成 Electron 输入；物理鼠标、透明窗口穿透、Spaces 和多显示器仍需 macOS 实机验收。
 
 ## 生命周期
 

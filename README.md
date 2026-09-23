@@ -55,7 +55,7 @@ bash scripts/create-dmg.sh
 bash scripts/smoke-mac-app.sh
 ```
 
-`build:mac` 使用固定 Electron 依赖生成 arm64 `.app`，从 `assets/DSniang1.png` 生成任务栏/App 图标，并执行 ad-hoc 签名。验证脚本检查 App 版本、arm64 主程序、asar 资源、代码签名完整性和 DMG 挂载内容；smoke 脚本会在隔离数据目录启动实际打包 App，复现旧版 248×274 窗口并验证 0.6/1.5/2.5 三档缩放、DOM 图片几何和原生窗口一致，再安全退出。打包会排除不参与 standalone 运行的开发/Windows/文档冗余；Electron Chromium 本体仍是主要体积。
+`build:mac` 使用固定 Electron 依赖生成 arm64 `.app`，从 `assets/DSniang1.png` 生成任务栏/App 图标，并执行 ad-hoc 签名。验证脚本检查 App 版本、arm64 主程序、asar 资源、代码签名完整性和 DMG 挂载内容；smoke 脚本会在隔离数据目录启动实际打包 App，复现旧版 248×274 窗口，并在同一次运行内验证悬停按钮不扩窗、0.6/1.6/2.5/1.0 缩放往返、打开菜单时人偶锚点、合成输入链和 DOM/原生窗口几何，再安全退出。smoke 的输入注入是打包 App 内的合成 Electron 事件，只作为桥接回归；它不会伪称已完成 macOS Accessibility/物理鼠标验收，后者需在真实 Mac 上人工复核。打包会排除不参与 standalone 运行的开发/Windows/文档冗余；Electron Chromium 本体仍是主要体积。
 
 GitHub Actions：
 

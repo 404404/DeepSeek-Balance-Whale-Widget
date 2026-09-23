@@ -15,7 +15,7 @@ diagnose() {
   local data="${1:-$DATA}" log="${2:-$LOG}"
   echo "--- packaged app stdout/stderr ($log) ---" >&2
   cat "$log" >&2 || true
-  for name in desktop-error.json bridge-error.json renderer-gone.json startup-timings.json layout-diagnostic.json; do
+  for name in desktop-error.json bridge-error.json renderer-gone.json startup-timings.json layout-diagnostic.json input-routing.json interaction-test.json renderer-errors.json; do
     if [[ -f "$data/$name" ]]; then
       echo "--- $data/$name ---" >&2
       cat "$data/$name" >&2 || true
@@ -43,26 +43,44 @@ run_case() {
     printf '{"version":1,"frame":{"x":100,"y":100,"width":248,"height":274}}\n' > "$DATA/window-state.json"
   fi
   ELECTRON_ENABLE_LOGGING=1 WHALE_DESKTOP_TEST=1 WHALE_HOME="$DATA" "$APP/Contents/MacOS/AI Balance Whale" \
-    --standalone --whale-render-test --enable-logging=stderr --whale-data="$DATA" >"$LOG" 2>&1 &
+    --standalone --whale-render-test --whale-interaction-test --enable-logging=stderr --whale-data="$DATA" >"$LOG" 2>&1 &
   PID=$!
   for _ in $(seq 1 90); do
-    if [[ -f "$DATA/startup-timings.json" && -f "$DATA/layout-diagnostic.json" ]]; then break; fi
+    if [[ -f "$DATA/startup-timings.json" && -f "$DATA/layout-diagnostic.json" && -f "$DATA/input-routing.json" && -f "$DATA/interaction-test.json" ]]; then break; fi
     if ! kill -0 "$PID" 2>/dev/null; then diagnose; exit 1; fi
     sleep 1
   done
-  if [[ ! -f "$DATA/startup-timings.json" || ! -f "$DATA/layout-diagnostic.json" ]]; then
+  if [[ ! -f "$DATA/startup-timings.json" || ! -f "$DATA/layout-diagnostic.json" || ! -f "$DATA/input-routing.json" || ! -f "$DATA/interaction-test.json" ]]; then
     diagnose
     echo "packaged renderer did not produce startup/layout evidence for $label" >&2
     exit 1
   fi
   [[ ! -f "$DATA/desktop-error.json" ]] || { diagnose; exit 1; }
   [[ ! -f "$DATA/renderer-gone.json" ]] || { diagnose; exit 1; }
-  python3 - "$DATA/startup-timings.json" "$DATA/layout-diagnostic.json" "$scale" "$legacy" <<'PYTEST'
+  [[ ! -f "$DATA/renderer-errors.json" ]] || { diagnose; echo "renderer script errors detected" >&2; exit 1; }
+  python3 - "$DATA/startup-timings.json" "$DATA/layout-diagnostic.json" "$DATA/input-routing.json" "$DATA/interaction-test.json" "$scale" "$legacy" <<'PYTEST'
 import json, math, sys
 startup = json.load(open(sys.argv[1], encoding='utf-8'))
 diag = json.load(open(sys.argv[2], encoding='utf-8'))
-scale = float(sys.argv[3])
-legacy = sys.argv[4] == '1'
+routing = json.load(open(sys.argv[3], encoding='utf-8'))
+interaction = json.load(open(sys.argv[4], encoding='utf-8'))
+scale = float(sys.argv[5])
+legacy = sys.argv[6] == '1'
+if interaction.get('pass') is not True:
+    raise SystemExit(f'packaged interaction regression failed: {interaction}')
+if interaction.get('osPointerValidated') is not False:
+    raise SystemExit(f'interaction evidence must not claim OS pointer validation: {interaction}')
+if routing.get('mode') != 'native-screen-hit-region':
+    raise SystemExit(f'unexpected input routing mode: {routing}')
+if not isinstance(routing.get('hitRegions'), list) or not routing['hitRegions']:
+    raise SystemExit(f'missing native hit regions: {routing}')
+if not any(
+    isinstance(region, dict)
+    and float(region.get('width', 0) or 0) >= 50
+    and float(region.get('height', 0) or 0) >= 50
+    for region in routing['hitRegions']
+):
+    raise SystemExit(f'role hit region missing; menu-only routing would pass: {routing}')
 phases = startup.get('phases', {})
 for key in ('appReady','dispatcherReady','windowCreated','pageLoaded','imageAndInputReady','interactive'):
     if key not in phases:
@@ -103,7 +121,7 @@ if abs(nw - expected) > 3 or abs(nh - expected) > 3:
     raise SystemExit(f'native frame {nw}x{nh} does not match DOM {rw}x{rh}')
 if legacy and (nw < 300 or nh < 300):
     raise SystemExit(f'legacy 248x274 frame was not migrated: native={native}')
-print(f'{sys.argv[3]} packaged layout passed: root={rw:.0f}x{rh:.0f}, image={required(image,"width"):.0f}x{required(image,"height"):.0f}, native={nw:.0f}x{nh:.0f}')
+print(f'{sys.argv[5]} packaged layout and interaction passed: root={rw:.0f}x{rh:.0f}, image={required(image,"width"):.0f}x{required(image,"height"):.0f}, native={nw:.0f}x{nh:.0f}')
 PYTEST
   stop_case
 }
