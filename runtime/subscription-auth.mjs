@@ -159,9 +159,9 @@ export function parseGrokLoopback(buffer) {
 
 function percent(value) {
   const number = Number(value);
-  if (!Number.isFinite(number) || number < 0) return null;
-  const scaled = number <= 1 ? number * 100 : number;
-  return scaled <= 100 ? scaled : null;
+  // These usage APIs report 0–100. A value of 0 or 1 is 0% or 1% used, not a 0–1 fraction.
+  if (!Number.isFinite(number) || number < 0 || number > 100) return null;
+  return number;
 }
 
 function resetAt(value) {
@@ -184,11 +184,19 @@ function windowFromUsed(id, label, used, reset) {
 export function parseCodexUsage(data) {
   const limit = data?.rate_limit && typeof data.rate_limit === 'object' ? data.rate_limit : data || {};
   const windows = [];
-  const primary = windowFromUsed('5h', 'Codex 5小时', limit.primary_window?.used_percent ?? limit.primary?.used_percent, limit.primary_window?.resets_at ?? limit.primary?.resets_at);
-  const secondary = windowFromUsed('week', 'Codex 周额度', limit.secondary_window?.used_percent ?? limit.secondary?.used_percent, limit.secondary_window?.resets_at ?? limit.secondary?.resets_at);
+  const primary = codexWindow(limit.primary_window || limit.primary, '5h', 'Codex 5小时');
+  const secondary = codexWindow(limit.secondary_window || limit.secondary, 'week', 'Codex 周额度');
   if (primary) windows.push(primary);
   if (secondary) windows.push(secondary);
   return windows;
+}
+
+function codexWindow(raw, id, label) {
+  if (!raw || typeof raw !== 'object') return null;
+  const used = raw.used_percent ?? raw.usedPercent;
+  const reset = raw.resets_at ?? raw.reset_at;
+  if (used == null || used === '') return { id, label, remainPct: 100, usedPct: 0, resetAt: resetAt(reset) };
+  return windowFromUsed(id, label, used, reset);
 }
 
 export function parseGrokUsage(data) {
