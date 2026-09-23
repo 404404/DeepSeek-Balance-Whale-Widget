@@ -56,4 +56,4 @@ Electron 的 arm64 Chromium 运行时是 DMG 体积的主要部分，不能在�
 
 ## 当前边界
 
-本阶段保留上游 API 余额和本机账本口径，但不声称 ChatGPT/Codex 订阅额度。网页 Auth、Codex 窗口跟随和需要辅助功能权限的能力不在此阶段；它们必须通过后续独立适配接入，不能通过演示数据或假登录状态填充。
+本阶段保留上游 API 余额和本机账本口径。Codex、Grok、Cursor 订阅额度通过 API 设置里的官方网页登录读取：浏览器完成登录后回调本机，不需要把验证码或 Cookie 填回挂件。凭据只写在本机 `subscription-credentials.json`（权限 0600），设置接口和气泡只收到剩余百分比。自定义气泡可以直接加入 Codex 5小时、Codex 周额度、Grok 周额度、Cursor API 周额度、Cursor Auto 周额度和 Grok Bot 周额度。Codex 窗口跟随和辅助功能权限仍不在此阶段。

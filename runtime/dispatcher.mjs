@@ -7,7 +7,7 @@ import { SessionMonitor } from './session-monitor.mjs';
 import { createWidgetHost } from '../lib/widget-host.mjs';
 import { migrateData, stripRetiredModules } from './migration.mjs';
 import { createFxService } from './fx.mjs';
-import { MEDIA_POLICY } from '../lib/media-validation.mjs';
+import { createSubscriptionService } from './subscription-service.mjs';
 
 export const UI_ORIGIN = 'whale://widget';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.gif': 'image/gif', '.mp3': 'audio/mpeg' };
@@ -15,19 +15,21 @@ const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inl
 const jsonResult = (status, payload) => ({ status, headers: { 'content-type': 'application/json; charset=utf-8' }, body: Buffer.from(JSON.stringify(payload)) });
 
 // Dispatch original resource handlers entirely in process; no HTTP listener exists.
-export function createDispatcher({ dataDir = DATA_HOME, service = null, monitor = true, autoRefresh = true, fetchImpl, fxFetchImpl = fetchImpl, onStop = () => {}, onShow = () => {}, statusInfo = () => ({}) } = {}) {
+export function createDispatcher({ dataDir = DATA_HOME, service = null, monitor = true, autoRefresh = true, fetchImpl, fxFetchImpl = fetchImpl, openExternal = async () => {}, onStop = () => {}, onShow = () => {}, statusInfo = () => ({}) } = {}) {
   fs.mkdirSync(dataDir, { recursive: true });
   migrateData(dataDir);
   const whale = service || new WhaleService({ dataDir, ...(fetchImpl ? { fetchImpl } : {}) });
+  const subscriptions = createSubscriptionService({ dataDir, ...(fetchImpl ? { fetchImpl } : {}), openExternal });
   const fx = createFxService({ dataDir, ...(fxFetchImpl ? { fetchImpl: fxFetchImpl } : {}) });
   const routes = new Map(), effects = [];
   createWidgetHost(dataDir).apply({ whale, webServer: { register: r => { routes.set(r.path, r.handler); return () => routes.delete(r.path); }, tapIndex: () => () => {} }, effect: f => effects.push(f()) });
   const watcher = monitor ? new SessionMonitor(whale) : null;
   watcher?.start();
-  const timer = autoRefresh ? setInterval(() => whale.getBalance().catch(() => {}), 60000) : null;
+  const timer = autoRefresh ? setInterval(() => { whale.getBalance().catch(() => {}); subscriptions.refreshAll().catch(() => {}); }, 60000) : null;
   timer?.unref();
   if (autoRefresh) {
     whale.getBalance().catch(() => {});
+    subscriptions.refreshAll().catch(() => {});
     fx.start().catch(() => {});
   }
   const stateFile = path.join(dataDir, 'ui-state.json');
@@ -80,6 +82,15 @@ export function createDispatcher({ dataDir = DATA_HOME, service = null, monitor 
         }
         return jsonResult(405, { ok: false });
       }
+      if (url.pathname === '/api/subscriptions' && method === 'GET') return jsonResult(200, { ok: true, ...subscriptions.publicStatus() });
+      if (url.pathname === '/api/subscriptions/login' && method === 'POST') {
+        const result = await subscriptions.beginLogin(String(parsed().provider || ''));
+        return jsonResult(result.ok ? 200 : 400, result);
+      }
+      if (url.pathname === '/api/subscriptions/logout' && method === 'POST') {
+        const result = subscriptions.logout(String(parsed().provider || ''));
+        return jsonResult(result.ok ? 200 : 400, result);
+      }
       if (url.pathname === '/api/show' && method === 'POST') { onShow(); return jsonResult(200, { ok: true, desktop: 'shown' }); }
       if (url.pathname === '/api/stop' && method === 'POST') { setTimeout(onStop, 100); return jsonResult(200, { ok: true }); }
       const uiFiles = { '/': 'widget.html', '/widget.html': 'widget.html', '/client.js': 'client.js', '/ui.css': 'ui.css', '/render.js': 'render.js', '/input.js': 'input.js', '/alpha-worker.js': 'alpha-worker.js', '/money.js': 'money.js', '/media-guard.js': 'media-guard.js', '/turn-notice.js': 'turn-notice.js' };
@@ -116,6 +127,7 @@ export function createDispatcher({ dataDir = DATA_HOME, service = null, monitor 
     closeJob = (async () => {
       const failures = [];
       try { await fx.close(); } catch (error) { failures.push(error); }
+      try { subscriptions.close(); } catch (error) { failures.push(error); }
       try { await watcher?.stop({ timeoutMs: 1200 }); } catch (error) { failures.push(error); }
       try { await whale.close?.({ timeoutMs: 3000 }); } catch (error) { failures.push(error); }
       for (const effect of effects.splice(0)) {

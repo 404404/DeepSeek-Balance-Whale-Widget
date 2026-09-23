@@ -542,7 +542,7 @@ if (!lock) {
     dispatcher = createDispatcher({
       dataDir,
       fetchImpl: (url, options) => net.fetch(url, options),
-      onStop: () => app.quit(),
+      openExternal: url => shell.openExternal(url),
       onShow: show,
       statusInfo: () => ({ standalone: true, hostAlive: false, visible: !!window?.isVisible(), rendering: null }),
       monitor: true,

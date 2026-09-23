@@ -4147,6 +4147,7 @@
     function bubbleModuleSummary(m) {
       m = m || ({});
       if (m.type === 'balance') return '余额数值';
+      if (m.type === 'subquota') return m.label || '订阅额度';
       if (m.type === 'today') return '今日已观测';
       if (m.type === 'image') return '图片/动图';
       if (m.type === 'random') return '随机语句' + (m.lines && m.lines.length ? '(' + m.lines.length + '条)' : '(空)');
@@ -4159,6 +4160,7 @@
       if (m.type === 'link') return '超链接: ' + (String(m.text || '').slice(0, 24) || '打开链接');
       if (m.type === 'random') return m.name || '随机语句';
       if (m.type === 'balance') return '余额数值';
+      if (m.type === 'subquota') return m.label || '订阅额度';
       if (m.type === 'today') return '今日已观测';
       if (m.type === 'image') return '图片/动图';
       return '模块';
@@ -5405,6 +5407,46 @@
           bubblePickImageToAdd();
         }
       }];
+      var quotaChips = [{
+        provider: 'codex',
+        windowId: '5h',
+        label: 'Codex 5小时'
+      }, {
+        provider: 'codex',
+        windowId: 'week',
+        label: 'Codex 周额度'
+      }, {
+        provider: 'grok',
+        windowId: 'week',
+        label: 'Grok 周额度'
+      }, {
+        provider: 'cursor',
+        windowId: 'api',
+        label: 'Cursor API 周额度'
+      }, {
+        provider: 'cursor',
+        windowId: 'auto',
+        label: 'Cursor Auto 周额度'
+      }, {
+        provider: 'cursor',
+        windowId: 'bot',
+        label: 'Grok Bot 周额度'
+      }];
+      for (var qi = 0; qi < quotaChips.length; qi++) defs.push({
+        key: 'sub:' + quotaChips[qi].provider + ':' + quotaChips[qi].windowId,
+        label: quotaChips[qi].label,
+        cb: function (chip) {
+          return function () {
+            bubbleModuleAdd({
+              type: 'subquota',
+              provider: chip.provider,
+              windowId: chip.windowId,
+              label: chip.label,
+              size: 8
+            });
+          };
+        }(quotaChips[qi])
+      });
       for (var i = 0; i < defs.length; i++) {
         (function (d) {
           var chip = document.createElement('div');
@@ -5563,6 +5605,10 @@
           openQuickModuleEditor(m);
           return;
         }
+        if (m && m.type === 'subquota') {
+          showConfirm((m.label || '订阅额度') + ' 会自动显示剩余百分比，不用手填。', function () {}, '知道了');
+          return;
+        }
         openModuleEditor(m, function (saved) {
           if (saved) renderBubblePv();
         });
@@ -5710,6 +5756,24 @@
         color: '#2f4488'
       };
       if (key === 'random') return bubbleCloneModule(bubbleDefaultSecondModules()[0]);
+      if (typeof key === 'string' && key.indexOf('sub:') === 0) {
+        var parts = key.split(':');
+        var labels = {
+          'codex:5h': 'Codex 5小时',
+          'codex:week': 'Codex 周额度',
+          'grok:week': 'Grok 周额度',
+          'cursor:api': 'Cursor API 周额度',
+          'cursor:auto': 'Cursor Auto 周额度',
+          'cursor:bot': 'Grok Bot 周额度'
+        };
+        return {
+          type: 'subquota',
+          provider: parts[1],
+          windowId: parts[2],
+          label: labels[parts[1] + ':' + parts[2]] || '订阅额度',
+          size: 8
+        };
+      }
       if (typeof key === 'string' && key.indexOf('lib:') === 0) {
         var lb = bubbleLibById(key.slice(4));
         return lb ? bubbleCloneModule(lb.module) : null;
@@ -6483,6 +6547,7 @@
     }
     function moduleTypeName(t, m) {
       if (t === 'balance') return '余额数值';
+      if (t === 'subquota') return (m && m.label) || '订阅额度';
       if (t === 'today') return '今日已观测';
       if (t === 'image') return '图片/动图';
       if (t === 'random') return '随机语句模块';
@@ -7775,6 +7840,7 @@
       balance: null,
       currency: null,
       todayUsage: null,
+      subscriptions: {},
       status: 'loading',
       message: '',
       flip: false
@@ -8463,6 +8529,7 @@
     
     function bubbleRowContentOf(mod) {
       mod = mod || ({});
+      if (mod.type === 'subquota') return { txt: subquotaText(mod), line: null };
       if (mod.type === 'balance' || mod.type === 'today') {
         var captured = { balance: state.balance, todayUsage: state.todayUsage, currency: state.currency || 'USD' };
         var moneyText = function () {
@@ -9095,7 +9162,35 @@
         cy: cy
       };
     }
+    function subquotaText(mod) {
+      var key = String((mod && mod.provider) || '') + ':' + String((mod && mod.windowId) || '');
+      var win = state.subscriptions && state.subscriptions[key];
+      var label = (mod && mod.label) || '订阅额度';
+      if (!win || typeof win.remainPct !== 'number' || !isFinite(win.remainPct)) return label + ' · 未连接';
+      var text = label + ' · 剩 ' + Math.round(win.remainPct) + '%';
+      var reset = Number(win.resetAt);
+      if (isFinite(reset) && reset > 0) {
+        var delta = reset - Date.now();
+        if (delta <= 0) text += ' · 即将重置';
+        else {
+          var hours = Math.max(1, Math.round(delta / 3600000));
+          text += hours < 48 ? ' · ' + hours + '小时后重置' : ' · ' + Math.round(hours / 24) + '天后重置';
+        }
+      }
+      return text;
+    }
+    function refreshSubscriptions() {
+      fetch('/api/subscriptions', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (data) {
+        if (!data || data.ok === false || !Array.isArray(data.accounts)) return;
+        var next = {};
+        data.accounts.forEach(function (account) {
+          (account.windows || []).forEach(function (windowInfo) { next[account.id + ':' + windowInfo.id] = windowInfo; });
+        });
+        state.subscriptions = next;
+      }).catch(function () {});
+    }
     function refresh(manual) {
+      refreshSubscriptions();
       if (busy) return;
       busy = true;
       if (manual || state.balance === null) state.status = 'loading';
