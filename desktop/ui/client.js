@@ -102,7 +102,10 @@
         if (element('priceWrite').value !== '') prices.cacheWrite = Number(element('priceWrite').value);
         settings.models[model] = prices;
       } else if (model) delete settings.models[model];
-      await api('/api/config', 'PUT', settings); location.reload();
+      await api('/api/config', 'PUT', settings);
+      $('settings-dialog').close();
+      window.dispatchEvent(new Event('whale-refresh'));
+      toast('设置已保存');
     } catch (error) { $('settings-error').hidden = false; $('settings-error').textContent = error.message; }
   });
 })();

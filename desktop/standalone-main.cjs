@@ -117,13 +117,37 @@ function initialFrame() {
     height: size,
   });
 }
+function readWindowState() { return read(windowStateFile, {}); }
+let alwaysOnTop = readWindowState().alwaysOnTop === true;
+function persistWindowState() {
+  if (!window || window.isDestroyed()) return;
+  try { save(windowStateFile, { version: 1, frame: window.getBounds(), alwaysOnTop, updatedAt: new Date().toISOString() }); } catch {}
+}
 function scheduleFrameSave() {
   if (!window || window.isDestroyed()) return;
   clearTimeout(frameSaveTimer);
-  frameSaveTimer = setTimeout(() => {
-    frameSaveTimer = null;
-    try { save(windowStateFile, { version: 1, frame: window.getBounds(), updatedAt: new Date().toISOString() }); } catch {}
-  }, 250);
+  frameSaveTimer = setTimeout(() => { frameSaveTimer = null; persistWindowState(); }, 250);
+}
+function applyAlwaysOnTop() {
+  if (!window || window.isDestroyed()) return;
+  window.setAlwaysOnTop(alwaysOnTop, 'floating');
+}
+function refreshTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: '显示 / 隐藏小鲸鱼', click: toggle },
+    { label: '打开设置', click: () => { show(); window.webContents.send('whale-settings'); } },
+    { label: '人偶置顶', type: 'checkbox', checked: alwaysOnTop, click: item => setPinned(!!item.checked) },
+    { label: '恢复人偶位置', click: restoreWidget },
+    { type: 'separator' },
+    { label: '退出 AI Balance Whale', click: () => app.quit() },
+  ]));
+}
+function setPinned(next) {
+  alwaysOnTop = !!next;
+  applyAlwaysOnTop();
+  persistWindowState();
+  refreshTrayMenu();
 }
 function invalidate() { if (window && !window.isDestroyed()) { presents++; window.webContents.invalidate(); } }
 function setKeyboardFocus(editing) {
@@ -586,7 +610,7 @@ if (!lock) {
     });
     markStartup('windowCreated');
     window.setMenuBarVisibility(false);
-    window.setAlwaysOnTop(false);
+    applyAlwaysOnTop();
     window.once('ready-to-show', () => markStartup('frameReady'));
     window.on('show', () => { invalidate(); sendCursor(true); });
     window.on('resize', () => { invalidate(); sendCursor(true); });
@@ -624,6 +648,12 @@ if (!lock) {
       hitRegions = [];
       lastNativeRootOffset = '';
       pendingSurface = null;
+      if (surfaceExpanded) {
+        surfaceExpanded = false;
+        surfaceReason = 'navigation-start';
+        const [width, height] = compactWidgetDimensions();
+        resizeKeepingBottomRight(width, height);
+      }
       setInputEnabled(false, 'navigation-start');
       setKeyboardFocus(false);
     });
@@ -703,13 +733,7 @@ if (!lock) {
     tray = new Tray(icon);
     if (process.platform === 'darwin' && typeof tray.setTemplateImage === 'function') tray.setTemplateImage(false);
     tray.setToolTip('AI Balance Whale');
-    tray.setContextMenu(Menu.buildFromTemplate([
-      { label: '显示 / 隐藏小鲸鱼', click: toggle },
-      { label: '打开设置', click: () => { show(); window.webContents.send('whale-settings'); } },
-      { label: '恢复人偶位置', click: restoreWidget },
-      { type: 'separator' },
-      { label: '退出 AI Balance Whale', click: () => app.quit() },
-    ]));
+    refreshTrayMenu();
     tray.on('double-click', toggle);
     globalShortcut.register(process.platform === 'darwin' ? 'Command+Option+W' : 'Control+Alt+W', toggle);
     screen.on('display-metrics-changed', handleDisplayChange);

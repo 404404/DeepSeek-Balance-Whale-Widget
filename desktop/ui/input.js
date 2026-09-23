@@ -58,7 +58,7 @@
     const rect = pet.getBoundingClientRect();
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
     const margin = 4;
-    const nodes = [pet, ...document.querySelectorAll('.dshwv-pop-open,.dshwv-menu-btn-visible')].filter(el => {
+    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-menu.dshwv-menu-open')].filter(el => {
       try {
         if (!visible(el)) return false;
         // The role image and the upstream SVG bubble deliberately use

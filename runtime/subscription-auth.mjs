@@ -192,12 +192,23 @@ export function parseCodexUsage(data) {
 }
 
 export function parseGrokUsage(data) {
-  const used = data?.used_percent ?? data?.weekly_used_percent ?? data?.creditUsagePercent ?? data?.weeklyPercentUsed;
-  const remain = used == null ? percent(data?.remaining_percent) : null;
-  const window = used != null
-    ? windowFromUsed('week', 'Grok 周额度', used, data?.reset_at ?? data?.weekly_reset_at ?? data?.currentPeriod?.end)
-    : (remain == null ? null : { id: 'week', label: 'Grok 周额度', remainPct: remain, usedPct: 100 - remain, resetAt: resetAt(data?.reset_at) });
-  return window ? [window] : [];
+  const root = data && typeof data === 'object' ? data : {};
+  const config = root.config && typeof root.config === 'object' ? root.config : root;
+  const period = config.currentPeriod && typeof config.currentPeriod === 'object' ? config.currentPeriod : {};
+  let used = config.creditUsagePercent ?? config.used_percent ?? config.weekly_used_percent ?? config.weeklyPercentUsed ?? root.creditUsagePercent ?? root.used_percent;
+  if ((used == null || used === '') && Array.isArray(config.productUsage)) {
+    const product = config.productUsage.find(item => item && item.usagePercent != null && item.usagePercent !== '');
+    if (product) used = product.usagePercent;
+  }
+  const reset = period.end ?? config.billingPeriodEnd ?? config.reset_at ?? config.weekly_reset_at ?? root.reset_at;
+  const weekly = String(period.type || '').toUpperCase().includes('WEEKLY');
+  if (used != null && used !== '') {
+    const window = windowFromUsed('week', 'Grok 周额度', used, reset);
+    if (window) return [window];
+  }
+  // A fresh weekly period omits the percent (protobuf drops zero). That is 0% used, not "未连接".
+  if (weekly) return [{ id: 'week', label: 'Grok 周额度', remainPct: 100, usedPct: 0, resetAt: resetAt(reset) }];
+  return [];
 }
 
 export function parseCursorUsage(period, sand) {

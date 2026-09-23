@@ -86,7 +86,7 @@ export function createSubscriptionService({ dataDir, fetchImpl = fetch, openExte
   }
   async function grokQuota(record) {
     const response = await fetchImpl('https://cli-chat-proxy.grok.com/v1/billing?format=credits', {
-      headers: { authorization: 'Bearer ' + record.accessToken, accept: 'application/json', 'x-xai-token-auth': 'xai-grok-cli' },
+      headers: { authorization: 'Bearer ' + record.accessToken, accept: 'application/json', 'x-xai-token-auth': 'xai-grok-cli', 'user-agent': 'xai-grok-cli' },
       redirect: 'error', signal: AbortSignal.timeout(timeoutMs),
     });
     const payload = await readJsonResponse(response);

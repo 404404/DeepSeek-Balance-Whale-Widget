@@ -5142,8 +5142,8 @@
         inp.type = 'text';
         inp.className = 'dshwv-qedit-content';
         inp.value = m.tpl || '';
-        inp.placeholder = m.type === 'balance' ? '例: {balance_api}' : m.type === 'today' ? '例: 今日已观测 {expense_api}' : '例: 当前 {status}';
-        inp.title = '可用占位符(英文): ' + (m.type === 'balance' ? '{balance_api}' : '{expense_api}');
+        inp.placeholder = m.type === 'balance' ? '例: {balance_api}' : m.type === 'today' ? '例: 今日已观测 {expense_api}' : m.type === 'subquota' ? '例: {label} {remain}' : '例: 当前 {status}';
+        inp.title = '可用占位符: ' + (m.type === 'balance' ? '{balance_api}' : m.type === 'today' ? '{expense_api}' : m.type === 'subquota' ? '{label} {remain} {used} {reset}' : '{status}');
         inp.addEventListener('input', function () {
           m.tpl = inp.value;
           changed();
@@ -5442,7 +5442,8 @@
               provider: chip.provider,
               windowId: chip.windowId,
               label: chip.label,
-              size: 8
+              size: 4,
+              tpl: '{label} {remain}'
             });
           };
         }(quotaChips[qi])
@@ -5601,12 +5602,8 @@
           openQuickTextEditor(m);
           return;
         }
-        if (m && (m.type === 'balance' || m.type === 'today')) {
+        if (m && (m.type === 'balance' || m.type === 'today' || m.type === 'subquota')) {
           openQuickModuleEditor(m);
-          return;
-        }
-        if (m && m.type === 'subquota') {
-          showConfirm((m.label || '订阅额度') + ' 会自动显示剩余百分比，不用手填。', function () {}, '知道了');
           return;
         }
         openModuleEditor(m, function (saved) {
@@ -5771,7 +5768,8 @@
           provider: parts[1],
           windowId: parts[2],
           label: labels[parts[1] + ':' + parts[2]] || '订阅额度',
-          size: 8
+          size: 4,
+          tpl: '{label} {remain}'
         };
       }
       if (typeof key === 'string' && key.indexOf('lib:') === 0) {
@@ -8431,6 +8429,12 @@
         v = values.todayUsage !== null && values.todayUsage !== undefined ? fmt(values.todayUsage, values.currency) : '--';
         map['expense_ds'] = v;
         map['expense_api'] = v;
+      } else if (m.type === 'subquota') {
+        var parts = subquotaParts(m);
+        map.label = parts.label;
+        map.remain = parts.remain;
+        map.used = parts.used;
+        map.reset = parts.reset;
       }
       return map;
     }
@@ -8443,7 +8447,14 @@
           d: d
         });
       }
-      if (m.type === 'balance') add('balance_ds', '余额数值'); else if (m.type === 'today') add('expense_ds', '今日已观测金额');
+      if (m.type === 'balance') add('balance_ds', '余额数值');
+      else if (m.type === 'today') add('expense_ds', '今日已观测金额');
+      else if (m.type === 'subquota') {
+        add('label', '额度名称，如 Codex 5小时');
+        add('remain', '剩余百分比，未连接时为「未连接」');
+        add('used', '已用百分比');
+        add('reset', '重置时间，如 3小时后');
+      }
       return arr;
     }
     var dshwvTplHelpEl = null;
@@ -8615,7 +8626,7 @@
         }
         tx.textContent = String(rowContent.txt);
         if (rowContent.moneyText) WhaleMoney.bind(tx, rowContent.moneyText);
-        row.style.fontSize = 'calc(var(--dshw-u) * ' + bubbleModuleFontU(fSize) + ')';
+        row.style.fontSize = 'calc(var(--dshw-u) * ' + (m.type === 'subquota' ? Math.max(28, Math.round(bubbleModuleFontU(fSize || 4) * 0.62)) : bubbleModuleFontU(fSize)) + ')';
         if (fBold) row.style.fontWeight = m.type === 'balance' ? '900' : '700'; else if (m.type === 'balance') row.style.fontWeight = '800';
         if (fItalic) row.style.fontStyle = 'italic';
         if (fUl) row.style.textDecoration = 'underline';
@@ -9162,22 +9173,28 @@
         cy: cy
       };
     }
-    function subquotaText(mod) {
+    function subquotaParts(mod) {
       var key = String((mod && mod.provider) || '') + ':' + String((mod && mod.windowId) || '');
       var win = state.subscriptions && state.subscriptions[key];
       var label = (mod && mod.label) || '订阅额度';
-      if (!win || typeof win.remainPct !== 'number' || !isFinite(win.remainPct)) return label + ' · 未连接';
-      var text = label + ' · 剩 ' + Math.round(win.remainPct) + '%';
-      var reset = Number(win.resetAt);
-      if (isFinite(reset) && reset > 0) {
-        var delta = reset - Date.now();
-        if (delta <= 0) text += ' · 即将重置';
+      if (!win || typeof win.remainPct !== 'number' || !isFinite(win.remainPct)) return { label: label, remain: '未连接', used: '--', reset: '' };
+      var reset = '';
+      var at = Number(win.resetAt);
+      if (isFinite(at) && at > 0) {
+        var delta = at - Date.now();
+        if (delta <= 0) reset = '即将重置';
         else {
           var hours = Math.max(1, Math.round(delta / 3600000));
-          text += hours < 48 ? ' · ' + hours + '小时后重置' : ' · ' + Math.round(hours / 24) + '天后重置';
+          reset = hours < 48 ? hours + '小时后' : Math.round(hours / 24) + '天后';
         }
       }
-      return text;
+      return { label: label, remain: Math.round(win.remainPct) + '%', used: Math.round(win.usedPct) + '%', reset: reset };
+    }
+    function subquotaText(mod) {
+      var parts = subquotaParts(mod);
+      var auto = parts.remain === '未连接' ? parts.label + ' 未连接' : parts.label + ' ' + parts.remain + (parts.reset ? ' · ' + parts.reset : '');
+      var tpl = mod && mod.tpl ? String(mod.tpl) : '{label} {remain}';
+      return bubbleContentText({ type: 'subquota', provider: mod && mod.provider, windowId: mod && mod.windowId, label: parts.label, tpl: tpl }, auto);
     }
     function refreshSubscriptions() {
       fetch('/api/subscriptions', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (data) {
@@ -11213,6 +11230,10 @@
     }
     function isWhaleHit(e) {
       if (!e || !img || !img.complete || !img.naturalWidth) return false;
+      try {
+        var top = document.elementFromPoint(e.clientX, e.clientY);
+        if (top && top.closest && (top.closest('dialog') || top.closest('#settings-dialog') || top.closest('.dshwv-qedit'))) return false;
+      } catch (err) {}
       if (WhaleRendering.hitCache.hit(img, e.clientX, e.clientY, WhaleRendering.mirrorScale(root) < 0)) return true;
       // Keep the interaction bounded to the role image while the alpha cache
       // is warming up or the animated transparent edge changes. The old code
@@ -11223,6 +11244,7 @@
     }
     function onDocPointerDown(e) {
       if (e.target && e.target.closest) {
+        if (e.target.closest('dialog') || e.target.closest('#settings-dialog') || e.target.closest('#settings-form') || e.target.closest('#toast')) return;
         if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu-btn')) return;
         if (e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-cropmask') || e.target.closest('.dshwv-confirmmask') || e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') || e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') || e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn') || e.target.closest('.dshwv-fxinfo') || e.target.closest('.dshwv-fxicon')) return;
         if (e.target.closest('.dshwv-rolebtn') || e.target.closest('.dshwv-audiobtn') || e.target.closest('.dshwv-roleimport') || e.target.closest('.dshwv-audioimport')) return;
@@ -11303,6 +11325,7 @@
     }
     function onDocClickStopper(e) {
       if (e.target && e.target.closest) {
+        if (e.target.closest('dialog') || e.target.closest('#settings-dialog') || e.target.closest('#toast')) return;
         if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') || e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-cropmask') || e.target.closest('.dshwv-confirmmask') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') || e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') || e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn') || e.target.closest('.dshwv-fxinfo') || e.target.closest('.dshwv-fxicon')) return;
       }
       if (!isWhaleHit(e)) return;
@@ -11315,6 +11338,7 @@
       try {
         if (!menuBtnHide) return;
         if (e.target && e.target.closest) {
+          if (e.target.closest('dialog') || e.target.closest('#settings-dialog')) return;
           if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') || e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-cropmask') || e.target.closest('.dshwv-confirmmask') || e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') || e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') || e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn')) return;
         }
         if (!isWhaleHit(e)) return;
@@ -11343,7 +11367,7 @@
       try {
         el = document.elementFromPoint(e.clientX, e.clientY);
       } catch (err) {}
-      if (el && el.closest && (el.closest('.dshwv-pop') || el.closest('.dshwv-menu') || el.closest('.dshwv-menu-btn') || el.closest('.dshwv-rolelist') || el.closest('.dshwv-cropmask') || el.closest('.dshwv-confirmmask') || el.closest('.dshwv-audiolist') || el.closest('.dshwv-audiomask') || el.closest('.dshwv-snapmask') || el.closest('.dshwv-bubmask') || el.closest('.dshwv-qedit') || el.closest('.dshwv-usagepanel') || el.closest('.dshwv-usage-mask') || el.closest('.dshwv-resmask') || el.closest('.dshwv-custmenu') || el.closest('.dshwv-custbtn') || el.closest('.dshwv-fxinfo') || el.closest('.dshwv-fxicon'))) {
+      if (el && el.closest && (el.closest('dialog') || el.closest('#settings-dialog') || el.closest('.dshwv-pop') || el.closest('.dshwv-menu') || el.closest('.dshwv-menu-btn') || el.closest('.dshwv-rolelist') || el.closest('.dshwv-cropmask') || el.closest('.dshwv-confirmmask') || el.closest('.dshwv-audiolist') || el.closest('.dshwv-audiomask') || el.closest('.dshwv-snapmask') || el.closest('.dshwv-bubmask') || el.closest('.dshwv-qedit') || el.closest('.dshwv-usagepanel') || el.closest('.dshwv-usage-mask') || el.closest('.dshwv-resmask') || el.closest('.dshwv-custmenu') || el.closest('.dshwv-custbtn') || el.closest('.dshwv-fxinfo') || el.closest('.dshwv-fxicon'))) {
         setWidgetCursor('');
         if (!menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible');
         return;
