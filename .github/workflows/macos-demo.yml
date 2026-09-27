@@ -1,0 +1,245 @@
+name: macOS Quick Chat Demo
+
+on:
+  push:
+    branches:
+      - demo/macdesktop-quick-chat
+      - 'demo/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-demo-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  DEMO_BASELINE_SHA: 265b74260fc09cd4c317d90da22268bcbe4ca6cf
+
+jobs:
+  demo-checks:
+    name: demo-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out this immutable commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run existing regressions and Demo behavior tests
+        run: npm test
+      - name: Check packaged Demo smoke script syntax
+        run: bash -n scripts/smoke-mac-demo.sh
+
+  demo-packaged-smoke:
+    name: demo-packaged-smoke
+    needs: demo-checks
+    runs-on: macos-14
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      short_sha: ${{ steps.identity.outputs.short_sha }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+    steps:
+      - name: Check out this immutable commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Record Demo source identity
+        id: identity
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          [[ "$SOURCE_SHA" == "$EXPECTED_SHA" ]]
+          SHORT_SHA="${SOURCE_SHA:0:7}"
+          VERSION="0.2.0-demo.${GITHUB_RUN_NUMBER}"
+          ARTIFACT_NAME="whale-demo-app-${VERSION}-${SHORT_SHA}"
+          {
+            echo "source_sha=$SOURCE_SHA"
+            echo "short_sha=$SHORT_SHA"
+            echo "version=$VERSION"
+            echo "artifact_name=$ARTIFACT_NAME"
+          } >> "$GITHUB_OUTPUT"
+          mkdir -p qa-output/demo-smoke
+          {
+            echo "baseline_sha=$DEMO_BASELINE_SHA"
+            echo "source_sha=$SOURCE_SHA"
+            echo "version=$VERSION"
+            echo 'architecture=arm64'
+            echo "actions_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > qa-output/demo-build-info.txt
+      - name: Record runner architecture
+        run: |
+          uname -a
+          node -p 'JSON.stringify({node:process.version, arch:process.arch, platform:process.platform})'
+      - name: Run existing macOS App build
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: npm run build:mac
+      - name: Verify App bundle and Demo resources
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: npm run verify:mac
+      - name: Run existing four-case packaged App smoke
+        run: bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app' qa-output/mac-smoke
+      - name: Run packaged Quick Chat Demo smoke
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: bash scripts/smoke-mac-demo.sh 'dist/AI Balance Whale.app' qa-output/demo-smoke
+      - name: Archive the exact verified App for DMG job
+        id: app
+        run: |
+          set -euo pipefail
+          mkdir -p qa-output
+          tar -czf qa-output/demo-app.tar.gz -C dist 'AI Balance Whale.app'
+          shasum -a 256 qa-output/demo-app.tar.gz | awk '{print $1}' > qa-output/demo-app.tar.gz.sha256
+          echo "app_sha256=$(cat qa-output/demo-app.tar.gz.sha256)" >> "$GITHUB_OUTPUT"
+          printf 'app_sha256=%s\n' "$(cat qa-output/demo-app.tar.gz.sha256)" >> qa-output/demo-build-info.txt
+      - name: Summarize packaged Demo evidence
+        if: always()
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+          SHORT_SHA: ${{ steps.identity.outputs.short_sha }}
+        run: |
+          {
+            echo '## macOS Quick Chat Demo packaged smoke'
+            echo "- Result: ${{ job.status }}"
+            echo "- Baseline SHA: $DEMO_BASELINE_SHA"
+            echo "- Source SHA: ${SOURCE_SHA:-unresolved}"
+            echo "- Version: ${VERSION:-unresolved}"
+            echo "- Architecture: arm64"
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo '- Native Finder drag, physical Chinese IME, and physical mouse pass-through: pending macOS manual acceptance.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload App and diagnostics for the dependent DMG job
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.identity.outputs.artifact_name || format('whale-demo-app-{0}', github.sha) }}
+          path: |
+            qa-output/demo-app.tar.gz
+            qa-output/demo-app.tar.gz.sha256
+            qa-output/demo-build-info.txt
+            qa-output/mac-smoke/**
+            qa-output/demo-smoke/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  demo-dmg:
+    name: demo-dmg
+    needs: [demo-checks, demo-packaged-smoke]
+    runs-on: macos-14
+    timeout-minutes: 35
+    steps:
+      - name: Check out the same immutable commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install locked packaging verifier
+        run: npm ci --no-audit --no-fund
+      - name: Download the App produced by packaged smoke
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.demo-packaged-smoke.outputs.artifact_name }}
+          path: qa-output/verified-app
+      - name: Verify transferred source, version, and App checksum
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          VERSION: ${{ needs.demo-packaged-smoke.outputs.version }}
+          SHORT_SHA: ${{ needs.demo-packaged-smoke.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
+          grep -Fxq "baseline_sha=$DEMO_BASELINE_SHA" qa-output/verified-app/demo-build-info.txt
+          grep -Fxq "source_sha=$EXPECTED_SHA" qa-output/verified-app/demo-build-info.txt
+          grep -Fxq "version=$VERSION" qa-output/verified-app/demo-build-info.txt
+          APP_ARCHIVE=qa-output/verified-app/demo-app.tar.gz
+          EXPECTED_DIGEST="$(cat qa-output/verified-app/demo-app.tar.gz.sha256)"
+          ACTUAL_DIGEST="$(shasum -a 256 "$APP_ARCHIVE" | awk '{print $1}')"
+          [[ "$ACTUAL_DIGEST" == "$EXPECTED_DIGEST" ]]
+          mkdir -p dist qa-output/dmg
+          tar -xzf "$APP_ARCHIVE" -C dist
+          {
+            echo "source_sha=$EXPECTED_SHA"
+            echo "baseline_sha=$DEMO_BASELINE_SHA"
+            echo "version=$VERSION"
+            echo 'architecture=arm64'
+            echo "app_sha256=$ACTUAL_DIGEST"
+            echo "actions_run=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > qa-output/dmg/demo-build-info.txt
+      - name: Re-verify the transferred App bundle
+        env:
+          VERSION: ${{ needs.demo-packaged-smoke.outputs.version }}
+        run: npm run verify:mac
+      - name: Create and read-only mount-test the Demo DMG
+        env:
+          VERSION: ${{ needs.demo-packaged-smoke.outputs.version }}
+          SHORT_SHA: ${{ needs.demo-packaged-smoke.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          OUTPUT="dist/AI-Balance-Whale-demo-${VERSION}-arm64-${SHORT_SHA}.dmg"
+          OUTPUT="$OUTPUT" bash scripts/create-dmg.sh 'dist/AI Balance Whale.app' "$OUTPUT"
+          hdiutil verify "$OUTPUT"
+          shasum -a 256 "$OUTPUT" | tee "${OUTPUT%.dmg}.sha256"
+          printf 'dmg=%s\n' "$OUTPUT" >> qa-output/dmg/demo-build-info.txt
+          shasum -a 256 "$OUTPUT" | awk '{print "dmg_sha256=" $1}' >> qa-output/dmg/demo-build-info.txt
+      - name: Publish Demo build information in the workflow summary
+        env:
+          VERSION: ${{ needs.demo-packaged-smoke.outputs.version }}
+          SHORT_SHA: ${{ needs.demo-packaged-smoke.outputs.short_sha }}
+        run: |
+          {
+            echo '## macOS Quick Chat Demo DMG'
+            echo '- Result: success'
+            echo "- Baseline SHA: $DEMO_BASELINE_SHA"
+            echo "- Source SHA: $GITHUB_SHA"
+            echo "- Version: $VERSION"
+            echo '- Architecture: arm64'
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload validated Demo DMG and SHA-256
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whale-demo-dmg-${{ needs.demo-packaged-smoke.outputs.version }}-arm64-${{ needs.demo-packaged-smoke.outputs.short_sha }}
+          path: |
+            dist/AI-Balance-Whale-demo-${{ needs.demo-packaged-smoke.outputs.version }}-arm64-${{ needs.demo-packaged-smoke.outputs.short_sha }}.dmg
+            dist/AI-Balance-Whale-demo-${{ needs.demo-packaged-smoke.outputs.version }}-arm64-${{ needs.demo-packaged-smoke.outputs.short_sha }}.sha256
+            qa-output/dmg/demo-build-info.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload failure diagnostics only
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whale-demo-dmg-diagnostics-${{ github.sha }}-${{ github.run_attempt }}
+          path: qa-output/**
+          if-no-files-found: warn
+          retention-days: 14

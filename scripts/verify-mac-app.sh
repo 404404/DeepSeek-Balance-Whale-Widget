@@ -12,7 +12,7 @@ file "$BINARY" | grep -Eqi 'arm64|universal' || { echo "main executable is not a
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 [[ "$PLIST_VERSION" == "$EXPECTED_VERSION" ]] || { echo "version mismatch: $PLIST_VERSION != $EXPECTED_VERSION" >&2; exit 1; }
 ASAR_LIST="$(npx --no-install asar list "$APP/Contents/Resources/app.asar")"
-for required in assets/DSniang1.png assets/whale-widget.js desktop/ui/widget.html desktop/standalone-main.cjs desktop/standalone-interaction-model.cjs runtime/dispatcher.mjs lib/widget-host.mjs; do
+for required in assets/DSniang1.png assets/whale-widget.js assets/whale-demo-dragging.svg assets/whale-demo-received.svg assets/whale-demo-processing.svg assets/whale-demo-complete.svg desktop/ui/widget.html desktop/ui/demo.css desktop/ui/demo-model.js desktop/ui/demo.js desktop/standalone-main.cjs desktop/standalone-interaction-model.cjs runtime/dispatcher.mjs lib/widget-host.mjs lib/demo-state-images.mjs; do
   grep -Fq "$required" <<<"$ASAR_LIST" || { echo "missing packaged resource: $required" >&2; exit 1; }
 done
 if grep -Fq 'desktop/follow-main.cjs' <<<"$ASAR_LIST"; then

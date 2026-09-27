@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const saved = ipcRenderer.sendSync('whale-storage');
 try { for (const [key, value] of Object.entries(saved)) if (localStorage.getItem(key) == null) localStorage.setItem(key, value); } catch {}
 let trustedClickAt = 0;
@@ -20,6 +20,19 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
     trustedClickAt = 0;
     return ipcRenderer.invoke('whale-open-external', value);
   },
+  pickDemoFiles: () => ipcRenderer.invoke('whale-demo-pick-files'),
+  inspectDroppedDemoFiles: files => {
+    if (!Array.isArray(files)) return Promise.resolve([]);
+    const paths = files.slice(0, 20).map(file => {
+      try { return webUtils.getPathForFile(file); } catch { return ''; }
+    });
+    return ipcRenderer.invoke('whale-demo-inspect-dropped-files', paths);
+  },
+  clearDroppedDemoFiles: ids => ipcRenderer.invoke('whale-demo-clear-dropped-files', Array.isArray(ids) ? ids.slice(0, 20) : []),
+  importDroppedDemoImage: (id, state) => ipcRenderer.invoke('whale-demo-import-dropped-image', { id, state }),
+  pickDemoStateImage: state => ipcRenderer.invoke('whale-demo-pick-state-image', state),
+  getDemoStateImages: () => ipcRenderer.invoke('whale-demo-get-state-images'),
+  resetDemoStateImage: state => ipcRenderer.invoke('whale-demo-reset-state-image', state),
   testMode: process.argv.includes('--whale-render-test') || process.env.WHALE_DESKTOP_TEST === '1',
   standalone: process.platform === 'darwin' || process.argv.includes('--standalone'),
   surface: (expanded, reason) => ipcRenderer.send('whale-surface', { expanded: !!expanded, reason: typeof reason === 'string' ? reason : '' }),
