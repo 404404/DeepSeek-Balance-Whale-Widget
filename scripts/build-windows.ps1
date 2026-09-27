@@ -13,6 +13,12 @@ $Packaged = Join-Path $Dist 'desktop-demo-win32-x64'
 $Exe = Join-Path $Packaged 'desktop-demo.exe'
 $ArchiveName = "desktop-demo-$Version-windows-x64-$ShortSha.zip"
 $Archive = Join-Path $Dist $ArchiveName
+function Get-DesktopDemoSha256([string] $Path) {
+  $Hasher = [System.Security.Cryptography.SHA256]::Create()
+  $Stream = [System.IO.File]::OpenRead($Path)
+  try { return ([BitConverter]::ToString($Hasher.ComputeHash($Stream))).Replace('-', '').ToLowerInvariant() }
+  finally { $Stream.Dispose(); $Hasher.Dispose() }
+}
 
 if (Test-Path $Dist) { Remove-Item $Dist -Recurse -Force }
 New-Item -ItemType Directory -Path $Dist -Force | Out-Null
@@ -37,7 +43,7 @@ $BuildInfo = @(
 Set-Content -Path (Join-Path $Packaged 'desktop-demo-build-info.txt') -Value $BuildInfo -Encoding utf8
 
 Compress-Archive -Path $Packaged -DestinationPath $Archive -CompressionLevel Optimal -Force
-$Digest = (Get-FileHash $Archive -Algorithm SHA256).Hash.ToLowerInvariant()
+$Digest = Get-DesktopDemoSha256 $Archive
 Set-Content -Path "$Archive.sha256" -Value "$Digest  $ArchiveName" -Encoding ascii
 Set-Content -Path (Join-Path $Dist 'desktop-demo-build-info.txt') -Value $BuildInfo -Encoding utf8
 Write-Host "Created $Archive"

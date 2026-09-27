@@ -2,6 +2,12 @@ $ErrorActionPreference = 'Stop'
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $Root
+function Get-DesktopDemoSha256([string] $Path) {
+  $Hasher = [System.Security.Cryptography.SHA256]::Create()
+  $Stream = [System.IO.File]::OpenRead($Path)
+  try { return ([BitConverter]::ToString($Hasher.ComputeHash($Stream))).Replace('-', '').ToLowerInvariant() }
+  finally { $Stream.Dispose(); $Hasher.Dispose() }
+}
 $Dist = Join-Path $Root 'dist'
 $BuildInfoPath = Join-Path $Dist 'desktop-demo-build-info.txt'
 if (-not (Test-Path $BuildInfoPath -PathType Leaf)) { throw 'desktop-demo-build-info.txt is missing.' }
@@ -35,7 +41,7 @@ if (-not $Archive) { throw 'Windows portable ZIP is missing.' }
 $ChecksumPath = "$($Archive.FullName).sha256"
 if (-not (Test-Path $ChecksumPath -PathType Leaf)) { throw 'Windows portable ZIP checksum is missing.' }
 $ExpectedDigest = (Get-Content $ChecksumPath -Raw).Trim().Split(' ')[0]
-$ActualDigest = (Get-FileHash $Archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+$ActualDigest = Get-DesktopDemoSha256 $Archive.FullName
 if ($ExpectedDigest -ne $ActualDigest) { throw 'Windows portable ZIP checksum does not match.' }
 $Zip = [System.IO.Compression.ZipFile]::OpenRead($Archive.FullName)
 try {
