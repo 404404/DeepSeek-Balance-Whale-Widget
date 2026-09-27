@@ -29,6 +29,7 @@ $Required = @(
 foreach ($Path in $Required) {
   if (-not ($AsarFiles -match [regex]::Escape($Path))) { throw "Packaged resource is missing: $Path" }
 }
+if ($AsarFiles -match 'desktop/follow-main\.cjs') { throw 'The Windows standalone app must not package the legacy Codex-following host.' }
 $Archive = Get-ChildItem $Dist -Filter 'desktop-demo-*-windows-x64-*.zip' | Select-Object -First 1
 if (-not $Archive) { throw 'Windows portable ZIP is missing.' }
 $ChecksumPath = "$($Archive.FullName).sha256"

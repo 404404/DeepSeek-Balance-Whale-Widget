@@ -13,13 +13,12 @@ $Packaged = Join-Path $Dist 'desktop-demo-win32-x64'
 $Exe = Join-Path $Packaged 'desktop-demo.exe'
 $ArchiveName = "desktop-demo-$Version-windows-x64-$ShortSha.zip"
 $Archive = Join-Path $Dist $ArchiveName
-$Ignore = '^dist(/|$)|(^|/)(\.git|\.github|build|qa-output|tests|docs|scripts|skills)(/|$)|(^|/)(desktop/(follow-main\.cjs|WindowApi\.cs|WhaleLauncher\.cs|supervisor\.ps1)|assets/DSH2\.png|package-lock\.json)'
 
 if (Test-Path $Dist) { Remove-Item $Dist -Recurse -Force }
 New-Item -ItemType Directory -Path $Dist -Force | Out-Null
 $PackagerArgs = @(
   '.', 'desktop-demo', '--platform=win32', '--arch=x64', "--out=$Dist", '--overwrite', '--asar', '--prune=true',
-  '--app-bundle-id=com.404404.desktopdemo', "--app-version=$Version", "--build-version=$BuildNumber", "--ignore=$Ignore"
+  '--app-bundle-id=com.404404.desktopdemo', "--app-version=$Version", "--build-version=$BuildNumber", '--ignore=desktop/follow-main.cjs'
 )
 & npx.cmd --no-install electron-packager @PackagerArgs
 if ($LASTEXITCODE -ne 0) { throw "electron-packager failed with exit code $LASTEXITCODE." }
