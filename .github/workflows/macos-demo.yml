@@ -146,6 +146,17 @@ jobs:
             qa-output/demo-smoke/**
           if-no-files-found: warn
           retention-days: 14
+      - name: Upload Demo screenshots and interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whale-demo-evidence-${{ steps.identity.outputs.version || 'unresolved' }}-arm64-${{ steps.identity.outputs.short_sha || github.sha }}
+          path: |
+            qa-output/demo-smoke/data/demo-screenshots/**
+            qa-output/demo-smoke/data/demo-smoke.json
+            qa-output/demo-smoke/data/input-routing.json
+          if-no-files-found: warn
+          retention-days: 14
 
   demo-dmg:
     name: demo-dmg
