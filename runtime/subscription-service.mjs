@@ -148,7 +148,7 @@ export function createSubscriptionService({ dataDir, fetchImpl = fetch, openExte
         if (url.pathname !== '/auth/callback') { res.writeHead(404); res.end('not found'); return; }
         const callback = callbackFromQuery(url.searchParams, request.state);
         res.writeHead(callback.ok ? 200 : 400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        res.end('<meta charset="utf-8"><p>' + (callback.ok ? 'Codex 登录完成，可以回到 AI Balance Whale。' : 'Codex 登录未完成，请回到挂件重试。') + '</p>');
+        res.end('<meta charset="utf-8"><p>' + (callback.ok ? 'Codex 登录完成，可以回到 desktop-demo。' : 'Codex 登录未完成，请回到挂件重试。') + '</p>');
         clearTimeout(timer); finishServer(server);
         resolve(callback.ok ? completeCodex(callback.code, request) : update('codex', { status: 'error', message: callback.error, windows: [] }));
       });
@@ -196,7 +196,7 @@ export function createSubscriptionService({ dataDir, fetchImpl = fetch, openExte
           if (url.pathname !== '/callback') { res.writeHead(404, headers); res.end('not found'); return; }
           const callback = callbackFromQuery(params, request.state);
           res.writeHead(callback.ok ? 200 : 400, { ...headers, 'content-type': 'text/html; charset=utf-8' });
-          res.end('<meta charset="utf-8"><p>' + (callback.ok ? 'Grok 登录完成，可以回到 AI Balance Whale。' : 'Grok 登录未完成，请回到挂件重试。') + '</p>');
+          res.end('<meta charset="utf-8"><p>' + (callback.ok ? 'Grok 登录完成，可以回到 desktop-demo。' : 'Grok 登录未完成，请回到挂件重试。') + '</p>');
           if (!params.get('code') && !params.get('error')) return;
           clearTimeout(timer); finishServer(server);
           resolve(callback.ok ? completeGrok(callback.code, request) : update('grok', { status: 'error', message: callback.error, windows: [] }));

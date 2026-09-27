@@ -11,7 +11,7 @@ bash scripts/create-dmg.sh
 bash scripts/smoke-mac-app.sh
 ```
 
-`smoke-mac-app.sh` 启动 `dist/AI Balance Whale.app/Contents/MacOS/AI Balance Whale`，使用临时 `WHALE_HOME`，等待 `startup-timings.json` 出现 `imageAndInputReady` 和 `interactive`，并要求实际打包资源写出 `input-routing.json` 与 `interaction-test.json`。后者在同一进程内检查旧窗口迁移、悬停按钮不扩窗、缩放往返、菜单展开的根节点锚点和 `sendInputEvent` 经过 preload/DOM/原生处理链；证据明确标记 `syntheticInputOnly`，不能替代真实 macOS 物理鼠标和透明窗口穿透验收。它不会读取或修改开发者的 Codex 登录状态。
+`smoke-mac-app.sh` 启动 `dist/desktop-demo.app/Contents/MacOS/desktop-demo`，使用临时 `DESKTOP_DEMO_HOME`，等待 `startup-timings.json` 出现 `imageAndInputReady` 和 `interactive`，并要求实际打包资源写出 `input-routing.json` 与 `interaction-test.json`。后者在同一进程内检查旧窗口迁移、悬停按钮不扩窗、缩放往返、菜单展开的根节点锚点和 `sendInputEvent` 经过 preload/DOM/原生处理链；证据明确标记 `syntheticInputOnly`，不能替代真实 macOS 物理鼠标和透明窗口穿透验收。它不会读取或修改开发者的 Codex 登录状态。
 
 ## 人工验收
 

@@ -16,7 +16,7 @@ async function dispatch(message) {
   if (id === undefined) return;
   try {
     let result;
-    if (method === 'initialize') result = { protocolVersion: ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'].includes(params.protocolVersion) ? params.protocolVersion : '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'api-balance-whale', version: VERSION } };
+    if (method === 'initialize') result = { protocolVersion: ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'].includes(params.protocolVersion) ? params.protocolVersion : '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'desktop-demo', version: VERSION } };
     else if (method === 'ping') result = {};
     else if (method === 'tools/list') result = { tools: toolSpecs };
     else if (method === 'resources/list' || method === 'resources/templates/list') result = method === 'resources/list' ? { resources: [] } : { resourceTemplates: [] };

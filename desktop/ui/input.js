@@ -7,12 +7,12 @@
   let point = { x: -1, y: -1 }, heldPointer = null, releaseEpoch = 0, interactive = false, keyboardFocus = false, ready = false, lastStorage = '', surfaceExpanded = false, lastWidgetSize = '', lastHitRegion = '', lastSurfaceReason = 'none', lastDiagnosticKey = '';
   const standalone = bridge.standalone === true;
   const testMode = bridge.testMode === true;
-  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden]),.whale-demo-panel:not([hidden]),.whale-demo-button.is-visible';
+  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden]),.desktop-demo-panel:not([hidden]),.desktop-demo-button.is-visible';
   // A visible hover button belongs to the compact widget hit area. It is not
   // an expanded surface: expanding the native window on hover creates a
   // resize -> coordinate -> hover feedback loop.
-  const expandedSurfaces = 'dialog[open]:not(.whale-demo-controls),.dshwv-menu.dshwv-menu-open,.dshwv-rolelist.dshwv-rolelist-open,.dshwv-audiolist.dshwv-audiolist-open,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.whale-demo-panel:not([hidden])';
-  const keyboardSurfaces = 'dialog[open]:not(.whale-demo-controls),.dshwv-menu,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.whale-demo-panel:not([hidden])';
+  const expandedSurfaces = 'dialog[open]:not(.desktop-demo-controls),.dshwv-menu.dshwv-menu-open,.dshwv-rolelist.dshwv-rolelist-open,.dshwv-audiolist.dshwv-audiolist-open,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.desktop-demo-panel:not([hidden])';
+  const keyboardSurfaces = 'dialog[open]:not(.desktop-demo-controls),.dshwv-menu,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.desktop-demo-panel:not([hidden])';
   function visible(el) { return el.checkVisibility({ opacityProperty: true, visibilityProperty: true }); }
   function contains(el, p) { const r = el.getBoundingClientRect(); return p.x >= r.left && p.x < r.right && p.y >= r.top && p.y < r.bottom; }
   function imageHit(p) {
@@ -58,7 +58,7 @@
     const rect = pet.getBoundingClientRect();
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
     const margin = 4;
-    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-menu.dshwv-menu-open,.whale-demo-panel:not([hidden]),.whale-demo-button.is-visible')].filter(el => {
+    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-menu.dshwv-menu-open,.desktop-demo-panel:not([hidden]),.desktop-demo-button.is-visible')].filter(el => {
       try {
         if (!visible(el)) return false;
         // The role image and the upstream SVG bubble deliberately use

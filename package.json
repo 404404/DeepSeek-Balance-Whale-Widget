@@ -1,10 +1,11 @@
 {
-  "name": "api-balance-whale",
+  "name": "desktop-demo",
+  "productName": "desktop-demo",
   "version": "0.2.0",
-  "description": "AI Balance Whale standalone macOS desktop widget, adapted from the upstream For-Codex Electron build.",
+  "description": "Cross-platform desktop puppet app based on the upstream For-Codex Electron widget.",
   "type": "module",
   "license": "MIT",
-  "main": "desktop/main.cjs",
+  "main": "desktop/desktop-demo-main.cjs",
   "files": [
     ".codex-plugin",
     ".mcp.json",
@@ -28,18 +29,20 @@
   "bugs": {
     "url": "https://github.com/404404/DeepSeek-Balance-Whale-Widget/issues"
   },
-  "homepage": "https://github.com/404404/DeepSeek-Balance-Whale-Widget/tree/for-macdesktop#readme",
+  "homepage": "https://github.com/404404/DeepSeek-Balance-Whale-Widget/tree/demo/macdesktop-quick-chat#readme",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "start": "npm run desktop",
     "desktop": "node scripts/control.mjs desktop",
-    "desktop:mac": "electron --standalone desktop/main.cjs",
-    "check": "node --check desktop/main.cjs && node --check desktop/standalone-main.cjs && node --check desktop/preload.cjs && node --check desktop/ui/client.js && node --check desktop/ui/input.js && node --check desktop/ui/render.js && node --check desktop/ui/demo-model.js && node --check desktop/ui/demo.js && node --check runtime/dispatcher.mjs && node --check lib/demo-state-images.mjs && node --check scripts/test-demo-interaction.mjs && node --check scripts/test-demo-state-images.mjs && node --check assets/whale-widget.js",
+    "desktop:mac": "electron desktop/desktop-demo-main.cjs",
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
+    "verify:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows.ps1",
+    "check": "node --check desktop/main.cjs && node --check desktop/desktop-demo-main.cjs && node --check desktop/standalone-main.cjs && node --check desktop/preload.cjs && node --check desktop/ui/client.js && node --check desktop/ui/input.js && node --check desktop/ui/render.js && node --check desktop/ui/desktop-demo-model.js && node --check desktop/ui/desktop-demo.js && node --check runtime/dispatcher.mjs && node --check lib/desktop-demo-state-images.mjs && node --check scripts/test-desktop-demo-interaction.mjs && node --check scripts/test-desktop-demo-state-images.mjs && node --check assets/whale-widget.js",
     "build:mac": "bash scripts/build-mac.sh",
     "verify:mac": "bash scripts/verify-mac-app.sh",
-    "test": "npm run check && node scripts/test-macos-interaction.mjs && node scripts/test-demo-interaction.mjs && node scripts/test-demo-state-images.mjs && node scripts/test-subscription-auth.mjs"
+    "test": "npm run check && node scripts/test-macos-interaction.mjs && node scripts/test-desktop-demo-interaction.mjs && node scripts/test-desktop-demo-state-images.mjs && node scripts/test-subscription-auth.mjs"
   },
   "devDependencies": {
     "@electron/asar": "3.2.18",

@@ -1,10 +1,10 @@
 (() => {
   'use strict';
   const bridge = window.whaleDesktop;
-  const modelApi = window.WhaleDemoModel;
+  const modelApi = window.DesktopDemoModel;
   if (!bridge || !modelApi) return;
 
-  const { STATES, STATE_LABELS, MODELS, createDemoModel } = modelApi;
+  const { STATES, STATE_LABELS, MODELS, createDesktopDemoModel } = modelApi;
   const state = { imageSettingsOpen: false, imageSettingsState: 'received', returnToChat: false, notice: '', noticeTimer: 0 };
   const previews = new Map();
   const formatBytes = size => {
@@ -18,33 +18,33 @@
 
   function panel(title, content, name) {
     const element = document.createElement('dialog');
-    element.className = 'whale-demo-panel';
+    element.className = 'desktop-demo-panel';
     element.setAttribute('aria-label', title);
-    element.innerHTML = `<header><div class="whale-demo-head-left"><h2 class="whale-demo-title">${title}</h2><span class="whale-demo-tag">本地演示</span></div><button class="whale-demo-close" type="button" data-demo-action="${name}-close" aria-label="关闭${title}" title="关闭">×</button></header>${content}`;
+    element.innerHTML = `<header><div class="desktop-demo-head-left"><h2 class="desktop-demo-title">${title}</h2><span class="desktop-demo-tag">本地演示</span></div><button class="desktop-demo-close" type="button" data-desktop-demo-action="${name}-close" aria-label="关闭${title}" title="关闭">×</button></header>${content}`;
     document.body.appendChild(element);
     return element;
   }
 
   const controls = document.createElement('dialog');
-  controls.className = 'whale-demo-controls';
+  controls.className = 'desktop-demo-controls';
   controls.setAttribute('aria-label', '小鲸鱼快捷操作');
-  controls.innerHTML = '<button type="button" class="whale-demo-button" data-demo-control="chat" aria-label="快速聊天" title="打开快速聊天"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.8A2.8 2.8 0 0 1 6.8 3h10.4A2.8 2.8 0 0 1 20 5.8v7.4a2.8 2.8 0 0 1-2.8 2.8h-5.5l-4.9 4v-4H6.8A2.8 2.8 0 0 1 4 13.2z"/><path d="M8 8h8M8 11h5"/></svg></button><button type="button" class="whale-demo-button" data-demo-control="images" aria-label="设置交互状态图片" title="设置人偶交互状态图片"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m5 17 5-5 3.5 3 2.5-2 3 3"/></svg></button>';
+  controls.innerHTML = '<button type="button" class="desktop-demo-button" data-desktop-demo-control="chat" aria-label="快速聊天" title="打开快速聊天"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.8A2.8 2.8 0 0 1 6.8 3h10.4A2.8 2.8 0 0 1 20 5.8v7.4a2.8 2.8 0 0 1-2.8 2.8h-5.5l-4.9 4v-4H6.8A2.8 2.8 0 0 1 4 13.2z"/><path d="M8 8h8M8 11h5"/></svg></button><button type="button" class="desktop-demo-button" data-desktop-demo-control="images" aria-label="设置交互状态图片" title="设置人偶交互状态图片"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m5 17 5-5 3.5 3 2.5-2 3 3"/></svg></button>';
   document.body.appendChild(controls);
 
   const chat = panel('快速聊天',
-    '<div class="whale-demo-banner">演示模式 · 本地模拟回复，不连接真实模型，也不会上传附件。</div><div class="whale-demo-messages" data-demo-part="messages" role="log" aria-live="polite"><div class="whale-demo-empty">发一条消息开始演示。Enter 发送，Shift+Enter 换行。</div></div><div class="whale-demo-divider"></div><div class="whale-demo-compose"><div class="whale-demo-file-list" data-demo-part="attachments" hidden></div><div class="whale-demo-model-row"><span>模型</span><select data-demo-part="model" aria-label="演示模型"><option value="fast">快速对话（演示）</option><option value="deep">深度思考（演示）</option></select><button type="button" class="whale-demo-quiet-btn" data-demo-action="open-images" title="设置人偶交互状态图片">交互图片</button></div><div class="whale-demo-attach-line"><button type="button" class="whale-demo-quiet-btn" data-demo-action="pick-files">＋ 添加文件</button><span class="whale-demo-attach-note">最多 20 个 · 仅本地展示</span></div><div class="whale-demo-input-row"><textarea data-demo-part="draft" rows="2" placeholder="输入消息…" aria-label="聊天消息"></textarea><button type="button" class="whale-demo-primary-btn whale-demo-send" data-demo-action="send">发送</button></div><div class="whale-demo-notice" data-demo-part="chat-notice" aria-live="polite"></div></div>', 'chat');
+    '<div class="desktop-demo-banner">演示模式 · 本地模拟回复，不连接真实模型，也不会上传附件。</div><div class="desktop-demo-messages" data-desktop-demo-part="messages" role="log" aria-live="polite"><div class="desktop-demo-empty">发一条消息开始演示。Enter 发送，Shift+Enter 换行。</div></div><div class="desktop-demo-divider"></div><div class="desktop-demo-compose"><div class="desktop-demo-file-list" data-desktop-demo-part="attachments" hidden></div><div class="desktop-demo-model-row"><span>模型</span><select data-desktop-demo-part="model" aria-label="演示模型"><option value="fast">快速对话（演示）</option><option value="deep">深度思考（演示）</option></select><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="open-images" title="设置人偶交互状态图片">交互图片</button></div><div class="desktop-demo-attach-line"><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="pick-files">＋ 添加文件</button><span class="desktop-demo-attach-note">最多 20 个 · 仅本地展示</span></div><div class="desktop-demo-input-row"><textarea data-desktop-demo-part="draft" rows="2" placeholder="输入消息…" aria-label="聊天消息"></textarea><button type="button" class="desktop-demo-primary-btn desktop-demo-send" data-desktop-demo-action="send">发送</button></div><div class="desktop-demo-notice" data-desktop-demo-part="chat-notice" aria-live="polite"></div></div>', 'chat');
 
   const fileActions = panel('收到文件',
-    '<div class="whale-demo-banner">请为这批文件选择用途。此 Demo 不读取普通文件内容。</div><div class="whale-demo-drop-list" data-demo-part="drop-files"></div><div class="whale-demo-error" data-demo-part="drop-errors" hidden></div><div class="whale-demo-notice" data-demo-part="action-notice"></div><div class="whale-demo-drop-actions"><button type="button" class="whale-demo-primary-btn" data-demo-action="route-chat">发送至聊天</button><button type="button" class="whale-demo-quiet-btn" data-demo-action="route-assistant">交由 AI 助手处理</button><button type="button" class="whale-demo-quiet-btn" data-demo-action="route-images">设为交互状态图片</button><button type="button" class="whale-demo-quiet-btn" data-demo-action="cancel-drop">取消</button></div>', 'actions');
+    '<div class="desktop-demo-banner">请为这批文件选择用途。此 Demo 不读取普通文件内容。</div><div class="desktop-demo-drop-list" data-desktop-demo-part="drop-files"></div><div class="desktop-demo-error" data-desktop-demo-part="drop-errors" hidden></div><div class="desktop-demo-notice" data-desktop-demo-part="action-notice"></div><div class="desktop-demo-drop-actions"><button type="button" class="desktop-demo-primary-btn" data-desktop-demo-action="route-chat">发送至聊天</button><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="route-assistant">交由 AI 助手处理</button><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="route-images">设为交互状态图片</button><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="cancel-drop">取消</button></div>', 'actions');
 
   const task = panel('AI 助手任务',
-    '<div class="whale-demo-banner">演示任务 · 不读取附件内容，也不会调用外部助手。</div><div class="whale-demo-task-content"><div class="whale-demo-task-files" data-demo-part="task-files"></div><label class="whale-demo-field-label">预设任务<select class="whale-demo-select" data-demo-part="task-kind"><option value="summary">总结内容</option><option value="key-points">提取要点</option></select></label><label class="whale-demo-field-label">补充要求<textarea data-demo-part="task-notes" placeholder="例如：优先关注时间安排和风险"></textarea></label><div class="whale-demo-task-state" data-demo-part="task-status" data-state="ready"><span>●</span><span data-demo-part="task-status-text">等待开始</span></div><div class="whale-demo-task-result" data-demo-part="task-result" hidden></div><div class="whale-demo-notice" data-demo-part="task-notice"></div><div class="whale-demo-task-actions"><button type="button" class="whale-demo-primary-btn" data-demo-action="start-task">开始演示</button><button type="button" class="whale-demo-quiet-btn" data-demo-action="close-task">关闭</button></div></div>', 'task');
+    '<div class="desktop-demo-banner">演示任务 · 不读取附件内容，也不会调用外部助手。</div><div class="desktop-demo-task-content"><div class="desktop-demo-task-files" data-desktop-demo-part="task-files"></div><label class="desktop-demo-field-label">预设任务<select class="desktop-demo-select" data-desktop-demo-part="task-kind"><option value="summary">总结内容</option><option value="key-points">提取要点</option></select></label><label class="desktop-demo-field-label">补充要求<textarea data-desktop-demo-part="task-notes" placeholder="例如：优先关注时间安排和风险"></textarea></label><div class="desktop-demo-task-state" data-desktop-demo-part="task-status" data-state="ready"><span>●</span><span data-desktop-demo-part="task-status-text">等待开始</span></div><div class="desktop-demo-task-result" data-desktop-demo-part="task-result" hidden></div><div class="desktop-demo-notice" data-desktop-demo-part="task-notice"></div><div class="desktop-demo-task-actions"><button type="button" class="desktop-demo-primary-btn" data-desktop-demo-action="start-task">开始演示</button><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="close-task">关闭</button></div></div>', 'task');
 
   const imageSettings = panel('交互状态图片',
-    '<div class="whale-demo-banner">状态图片单独保存在本应用数据目录，不会改写现有角色或聊天附件。</div><div class="whale-demo-image-content"><label class="whale-demo-field-label">人偶交互状态<select class="whale-demo-select" data-demo-part="setting-state"></select></label><div class="whale-demo-preview-wrap"><img class="whale-demo-preview" data-demo-part="setting-preview" alt="当前交互状态图片预览"></div><div class="whale-demo-image-description" data-demo-part="setting-description"></div><div class="whale-demo-notice" data-demo-part="setting-notice" aria-live="polite"></div><div class="whale-demo-image-actions"><button type="button" class="whale-demo-quiet-btn" data-demo-action="reset-image">恢复内置图片</button><button type="button" class="whale-demo-primary-btn" data-demo-action="pick-image">导入 / 替换</button></div></div>', 'images');
+    '<div class="desktop-demo-banner">状态图片单独保存在本应用数据目录，不会改写现有角色或聊天附件。</div><div class="desktop-demo-image-content"><label class="desktop-demo-field-label">人偶交互状态<select class="desktop-demo-select" data-desktop-demo-part="setting-state"></select></label><div class="desktop-demo-preview-wrap"><img class="desktop-demo-preview" data-desktop-demo-part="setting-preview" alt="当前交互状态图片预览"></div><div class="desktop-demo-image-description" data-desktop-demo-part="setting-description"></div><div class="desktop-demo-notice" data-desktop-demo-part="setting-notice" aria-live="polite"></div><div class="desktop-demo-image-actions"><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="reset-image">恢复内置图片</button><button type="button" class="desktop-demo-primary-btn" data-desktop-demo-action="pick-image">导入 / 替换</button></div></div>', 'images');
 
   const imageAssignment = panel('选择交互状态图片',
-    '<div class="whale-demo-banner">这张图片只用于人偶外观，不会作为聊天附件自动发送。</div><div class="whale-demo-image-content"><label class="whale-demo-field-label">拖入的图片<select class="whale-demo-select" data-demo-part="drop-image-file"></select></label><div class="whale-demo-preview-wrap"><img class="whale-demo-preview" data-demo-part="drop-image-preview" alt="拖入图片预览"></div><label class="whale-demo-field-label">应用到状态<select class="whale-demo-select" data-demo-part="drop-image-state"></select></label><div class="whale-demo-image-description">只支持 PNG、JPEG、WebP；导入后会复制到应用数据目录。</div><div class="whale-demo-notice" data-demo-part="assignment-notice"></div><div class="whale-demo-image-actions"><button type="button" class="whale-demo-quiet-btn" data-demo-action="cancel-image-assignment">取消</button><button type="button" class="whale-demo-primary-btn" data-demo-action="apply-drop-image">应用图片</button></div></div>', 'assignment');
+    '<div class="desktop-demo-banner">这张图片只用于人偶外观，不会作为聊天附件自动发送。</div><div class="desktop-demo-image-content"><label class="desktop-demo-field-label">拖入的图片<select class="desktop-demo-select" data-desktop-demo-part="drop-image-file"></select></label><div class="desktop-demo-preview-wrap"><img class="desktop-demo-preview" data-desktop-demo-part="drop-image-preview" alt="拖入图片预览"></div><label class="desktop-demo-field-label">应用到状态<select class="desktop-demo-select" data-desktop-demo-part="drop-image-state"></select></label><div class="desktop-demo-image-description">只支持 PNG、JPEG、WebP；导入后会复制到应用数据目录。</div><div class="desktop-demo-notice" data-desktop-demo-part="assignment-notice"></div><div class="desktop-demo-image-actions"><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="cancel-image-assignment">取消</button><button type="button" class="desktop-demo-primary-btn" data-desktop-demo-action="apply-drop-image">应用图片</button></div></div>', 'assignment');
 
   const root = document.querySelector('.dshwv-root');
   const pet = document.querySelector('.dshwv-img');
@@ -53,14 +53,14 @@
   let avatar = null;
   if (body) {
     avatar = document.createElement('img');
-    avatar.className = 'whale-demo-avatar';
+    avatar.className = 'desktop-demo-avatar';
     avatar.alt = '';
     avatar.draggable = false;
     body.appendChild(avatar);
   }
   if (root) {
     const hint = document.createElement('span');
-    hint.className = 'whale-demo-drop-hint';
+    hint.className = 'desktop-demo-drop-hint';
     hint.textContent = '松开发送文件';
     hint.setAttribute('aria-hidden', 'true');
     root.appendChild(hint);
@@ -72,7 +72,7 @@
     if (state.notice) state.noticeTimer = window.setTimeout(() => { state.notice = ''; render(model.snapshot()); }, 4500);
     render(model.snapshot());
   }
-  const model = createDemoModel({ onChange: render });
+  const model = createDesktopDemoModel({ onChange: render });
   let activeDropEpoch = 0;
 
   function dialogOpen(element) {
@@ -113,8 +113,8 @@
     else dialogClose(element);
   }
   function stateImageUrl(value, key) {
-    if (key) return `/demo/state-image?state=${encodeURIComponent(value)}&v=${encodeURIComponent(key)}`;
-    return `/assets/whale-demo-${encodeURIComponent(value)}.svg`;
+    if (key) return `/desktop-demo/state-image?state=${encodeURIComponent(value)}&v=${encodeURIComponent(key)}`;
+    return `/assets/desktop-demo-${encodeURIComponent(value)}.svg`;
   }
   function syncAvatar(snapshot) {
     if (!avatar) return;
@@ -139,7 +139,7 @@
       const status = key.slice(0, colon), imageId = key.slice(colon + 1);
       if (imageId !== 'builtin') {
         model.imageLoadFailed(status, imageId);
-        bridge.getDemoStateImages().then(images => model.setImageMappings(images)).catch(() => {});
+        bridge.getDesktopDemoStateImages().then(images => model.setImageMappings(images)).catch(() => {});
       } else {
         avatar.classList.remove('is-visible');
         avatar.removeAttribute('data-source-key');
@@ -149,63 +149,63 @@
 
   function fileRow(file, { removable = false, preview = previews.get(file.id) } = {}) {
     const row = document.createElement('div');
-    row.className = 'whale-demo-file';
+    row.className = 'desktop-demo-file';
     if (preview) {
       const image = document.createElement('img');
-      image.className = 'whale-demo-file-thumb';
+      image.className = 'desktop-demo-file-thumb';
       image.src = preview;
       image.alt = '';
       row.appendChild(image);
     } else {
       const icon = document.createElement('span');
-      icon.className = 'whale-demo-file-icon';
+      icon.className = 'desktop-demo-file-icon';
       icon.textContent = file.isImage ? '▧' : '▤';
       row.appendChild(icon);
     }
     const main = document.createElement('span');
-    main.className = 'whale-demo-file-main';
+    main.className = 'desktop-demo-file-main';
     const name = document.createElement('span');
-    name.className = 'whale-demo-file-name';
+    name.className = 'desktop-demo-file-name';
     name.textContent = file.name;
     const meta = document.createElement('span');
-    meta.className = 'whale-demo-file-meta';
+    meta.className = 'desktop-demo-file-meta';
     meta.textContent = `${extensionLabel(file)} · ${formatBytes(file.size)}`;
     main.append(name, meta);
     row.appendChild(main);
     if (removable) {
       const remove = document.createElement('button');
-      remove.className = 'whale-demo-file-remove';
+      remove.className = 'desktop-demo-file-remove';
       remove.type = 'button';
       remove.title = `移除 ${file.name}`;
       remove.setAttribute('aria-label', `移除 ${file.name}`);
-      remove.dataset.demoRemove = file.id;
+      remove.dataset.desktopDemoRemove = file.id;
       remove.textContent = '×';
       row.appendChild(remove);
     }
     return row;
   }
   function renderMessageList(snapshot) {
-    const host = chat.querySelector('[data-demo-part="messages"]');
+    const host = chat.querySelector('[data-desktop-demo-part="messages"]');
     const nearBottom = host.scrollHeight - host.scrollTop - host.clientHeight < 48;
     host.replaceChildren();
     if (!snapshot.messages.length) {
       const empty = document.createElement('div');
-      empty.className = 'whale-demo-empty';
+      empty.className = 'desktop-demo-empty';
       empty.textContent = '发一条消息开始演示。Enter 发送，Shift+Enter 换行。';
       host.appendChild(empty);
     }
     for (const message of snapshot.messages) {
       const item = document.createElement('article');
-      item.className = `whale-demo-message ${message.role === 'user' ? 'whale-demo-message-user' : 'whale-demo-message-assistant'}`;
+      item.className = `desktop-demo-message ${message.role === 'user' ? 'desktop-demo-message-user' : 'desktop-demo-message-assistant'}`;
       if (message.role === 'assistant') {
         const label = document.createElement('div');
-        label.className = 'whale-demo-message-model';
+        label.className = 'desktop-demo-message-model';
         label.textContent = MODELS[message.modelId] || MODELS.fast;
         item.appendChild(label);
       }
       if (message.status === 'thinking') {
         const thinking = document.createElement('span');
-        thinking.className = 'whale-demo-thinking';
+        thinking.className = 'desktop-demo-thinking';
         thinking.append(document.createTextNode('思考中'));
         for (let i = 0; i < 3; i += 1) thinking.appendChild(document.createElement('i'));
         item.appendChild(thinking);
@@ -216,7 +216,7 @@
       }
       if (message.files?.length) {
         const files = document.createElement('div');
-        files.className = 'whale-demo-message-files';
+        files.className = 'desktop-demo-message-files';
         for (const file of message.files) files.appendChild(fileRow(file));
         item.appendChild(files);
       }
@@ -225,14 +225,14 @@
     if (nearBottom || snapshot.messages.length) host.scrollTop = host.scrollHeight;
   }
   function renderAttachments(snapshot) {
-    const host = chat.querySelector('[data-demo-part="attachments"]');
+    const host = chat.querySelector('[data-desktop-demo-part="attachments"]');
     host.replaceChildren();
     host.hidden = !snapshot.attachments.length;
     for (const file of snapshot.attachments) host.appendChild(fileRow(file, { removable: true }));
   }
   function renderDropFiles(snapshot) {
-    const host = fileActions.querySelector('[data-demo-part="drop-files"]');
-    const errors = fileActions.querySelector('[data-demo-part="drop-errors"]');
+    const host = fileActions.querySelector('[data-desktop-demo-part="drop-files"]');
+    const errors = fileActions.querySelector('[data-desktop-demo-part="drop-errors"]');
     host.replaceChildren();
     for (const file of snapshot.droppedFiles) host.appendChild(fileRow(file));
     errors.replaceChildren();
@@ -242,9 +242,9 @@
       error.textContent = `${item.name}：${item.error}`;
       errors.appendChild(error);
     }
-    fileActions.querySelector('[data-demo-action="route-chat"]').disabled = !snapshot.droppedFiles.length;
-    fileActions.querySelector('[data-demo-action="route-assistant"]').disabled = !snapshot.droppedFiles.length;
-    fileActions.querySelector('[data-demo-action="route-images"]').disabled = !snapshot.droppedFiles.some(file => file.isImage && file.imageSupported);
+    fileActions.querySelector('[data-desktop-demo-action="route-chat"]').disabled = !snapshot.droppedFiles.length;
+    fileActions.querySelector('[data-desktop-demo-action="route-assistant"]').disabled = !snapshot.droppedFiles.length;
+    fileActions.querySelector('[data-desktop-demo-action="route-images"]').disabled = !snapshot.droppedFiles.some(file => file.isImage && file.imageSupported);
   }
   function populateStateSelect(select, value) {
     if (!select.options.length) {
@@ -258,42 +258,42 @@
     select.value = value;
   }
   function renderTask(snapshot) {
-    const files = task.querySelector('[data-demo-part="task-files"]');
+    const files = task.querySelector('[data-desktop-demo-part="task-files"]');
     files.textContent = snapshot.droppedFiles.length
       ? snapshot.droppedFiles.map(file => `${file.name}（${formatBytes(file.size)}）`).join(' · ')
       : '未附加文件';
-    const kind = task.querySelector('[data-demo-part="task-kind"]');
+    const kind = task.querySelector('[data-desktop-demo-part="task-kind"]');
     if (snapshot.task && kind.value !== (snapshot.task.kind === 'key-points' ? 'key-points' : 'summary')) kind.value = snapshot.task.kind;
-    const notes = task.querySelector('[data-demo-part="task-notes"]');
+    const notes = task.querySelector('[data-desktop-demo-part="task-notes"]');
     if (snapshot.task && notes.value !== snapshot.task.notes) notes.value = snapshot.task.notes;
     const taskStatus = snapshot.task?.status || 'ready';
-    const status = task.querySelector('[data-demo-part="task-status"]');
+    const status = task.querySelector('[data-desktop-demo-part="task-status"]');
     status.dataset.state = taskStatus;
-    task.querySelector('[data-demo-part="task-status-text"]').textContent = ({ ready: '等待开始', waiting: '等待中', processing: '处理中', complete: '已完成', cancelled: '已取消' })[taskStatus] || '等待开始';
-    const result = task.querySelector('[data-demo-part="task-result"]');
+    task.querySelector('[data-desktop-demo-part="task-status-text"]').textContent = ({ ready: '等待开始', waiting: '等待中', processing: '处理中', complete: '已完成', cancelled: '已取消' })[taskStatus] || '等待开始';
+    const result = task.querySelector('[data-desktop-demo-part="task-result"]');
     result.textContent = snapshot.task?.result || '';
     result.hidden = !snapshot.task?.result;
-    const start = task.querySelector('[data-demo-action="start-task"]');
+    const start = task.querySelector('[data-desktop-demo-action="start-task"]');
     start.disabled = !snapshot.task || ['waiting', 'processing', 'complete'].includes(taskStatus);
     start.textContent = taskStatus === 'waiting' || taskStatus === 'processing' ? '处理中…' : taskStatus === 'complete' ? '演示完成' : '开始演示';
   }
   function renderImageSettings(snapshot) {
-    const select = imageSettings.querySelector('[data-demo-part="setting-state"]');
+    const select = imageSettings.querySelector('[data-desktop-demo-part="setting-state"]');
     populateStateSelect(select, state.imageSettingsState);
     const custom = snapshot.imageMappings[state.imageSettingsState];
-    const preview = imageSettings.querySelector('[data-demo-part="setting-preview"]');
+    const preview = imageSettings.querySelector('[data-desktop-demo-part="setting-preview"]');
     const source = custom ? stateImageUrl(state.imageSettingsState, custom.id)
       : state.imageSettingsState === 'default' ? (pet?.currentSrc || pet?.src || '/assets/DSniang1.png')
         : stateImageUrl(state.imageSettingsState);
     if (preview.dataset.source !== source) { preview.dataset.source = source; preview.src = source; }
-    imageSettings.querySelector('[data-demo-part="setting-description"]').textContent = custom
+    imageSettings.querySelector('[data-desktop-demo-part="setting-description"]').textContent = custom
       ? `当前自定义图片：${custom.name} · ${formatBytes(custom.size)}。`
       : `当前使用内置「${STATE_LABELS[state.imageSettingsState]}」图片。`;
-    imageSettings.querySelector('[data-demo-action="reset-image"]').disabled = !custom;
+    imageSettings.querySelector('[data-desktop-demo-action="reset-image"]').disabled = !custom;
   }
   function renderImageAssignment(snapshot) {
     const supported = snapshot.droppedFiles.filter(file => file.isImage && file.imageSupported);
-    const fileSelect = imageAssignment.querySelector('[data-demo-part="drop-image-file"]');
+    const fileSelect = imageAssignment.querySelector('[data-desktop-demo-part="drop-image-file"]');
     const previous = fileSelect.value;
     fileSelect.replaceChildren();
     for (const file of supported) {
@@ -303,17 +303,17 @@
       fileSelect.appendChild(option);
     }
     if (supported.some(file => file.id === previous)) fileSelect.value = previous;
-    const stateSelect = imageAssignment.querySelector('[data-demo-part="drop-image-state"]');
+    const stateSelect = imageAssignment.querySelector('[data-desktop-demo-part="drop-image-state"]');
     populateStateSelect(stateSelect, state.imageSettingsState);
     const image = supported.find(file => file.id === fileSelect.value);
-    const preview = imageAssignment.querySelector('[data-demo-part="drop-image-preview"]');
+    const preview = imageAssignment.querySelector('[data-desktop-demo-part="drop-image-preview"]');
     const source = image ? previews.get(image.id) : '';
     if (preview.dataset.source !== source) {
       preview.dataset.source = source || '';
       if (source) preview.src = source;
       else preview.removeAttribute('src');
     }
-    imageAssignment.querySelector('[data-demo-action="apply-drop-image"]').disabled = !image;
+    imageAssignment.querySelector('[data-desktop-demo-action="apply-drop-image"]').disabled = !image;
   }
   function render(snapshot) {
     setOpen(chat, snapshot.chatOpen);
@@ -327,21 +327,21 @@
     renderTask(snapshot);
     renderImageSettings(snapshot);
     renderImageAssignment(snapshot);
-    chat.querySelector('[data-demo-part="model"]').value = snapshot.modelId;
-    const draft = chat.querySelector('[data-demo-part="draft"]');
+    chat.querySelector('[data-desktop-demo-part="model"]').value = snapshot.modelId;
+    const draft = chat.querySelector('[data-desktop-demo-part="draft"]');
     if (draft.value !== snapshot.draft) draft.value = snapshot.draft;
-    chat.querySelector('[data-demo-action="send"]').disabled = !snapshot.draft.trim() && !snapshot.attachments.length;
-    chat.querySelector('[data-demo-part="chat-notice"]').textContent = snapshot.notice || state.notice;
-    fileActions.querySelector('[data-demo-part="action-notice"]').textContent = snapshot.notice || state.notice;
-    task.querySelector('[data-demo-part="task-notice"]').textContent = snapshot.notice || state.notice;
-    imageSettings.querySelector('[data-demo-part="setting-notice"]').textContent = snapshot.notice || state.notice;
-    if (root) root.classList.toggle('whale-demo-drag-active', snapshot.dragOver);
+    chat.querySelector('[data-desktop-demo-action="send"]').disabled = !snapshot.draft.trim() && !snapshot.attachments.length;
+    chat.querySelector('[data-desktop-demo-part="chat-notice"]').textContent = snapshot.notice || state.notice;
+    fileActions.querySelector('[data-desktop-demo-part="action-notice"]').textContent = snapshot.notice || state.notice;
+    task.querySelector('[data-desktop-demo-part="task-notice"]').textContent = snapshot.notice || state.notice;
+    imageSettings.querySelector('[data-desktop-demo-part="setting-notice"]').textContent = snapshot.notice || state.notice;
+    if (root) root.classList.toggle('desktop-demo-drag-active', snapshot.dragOver);
     syncAvatar(snapshot);
     const hovering = !!menuButton?.classList.contains('dshwv-menu-btn-visible');
     const chatVisible = hovering || snapshot.chatOpen;
     const imagesVisible = hovering || state.imageSettingsOpen;
-    controls.querySelector('[data-demo-control="chat"]').classList.toggle('is-visible', chatVisible);
-    controls.querySelector('[data-demo-control="images"]').classList.toggle('is-visible', imagesVisible);
+    controls.querySelector('[data-desktop-demo-control="chat"]').classList.toggle('is-visible', chatVisible);
+    controls.querySelector('[data-desktop-demo-control="images"]').classList.toggle('is-visible', imagesVisible);
     const controlsNeeded = chatVisible || imagesVisible;
     setOpen(controls, controlsNeeded);
     placeControls();
@@ -360,22 +360,22 @@
     const ids = model.cancelDrop();
     ++activeDropEpoch;
     clearPreviewUrls(ids);
-    await bridge.clearDroppedDemoFiles(ids).catch(() => {});
+    await bridge.clearDroppedDesktopDemoFiles(ids).catch(() => {});
   }
   async function closeTask() {
     const ids = model.closeTask();
     clearPreviewUrls(ids);
-    await bridge.clearDroppedDemoFiles(ids).catch(() => {});
+    await bridge.clearDroppedDesktopDemoFiles(ids).catch(() => {});
   }
   async function closeImageAssignment() {
     const ids = model.closeImageAssignment();
     clearPreviewUrls(ids);
-    await bridge.clearDroppedDemoFiles(ids).catch(() => {});
+    await bridge.clearDroppedDesktopDemoFiles(ids).catch(() => {});
   }
   async function openChat() {
     hidePetMenu();
     model.openChat();
-    window.requestAnimationFrame(() => chat.querySelector('[data-demo-part="draft"]').focus());
+    window.requestAnimationFrame(() => chat.querySelector('[data-desktop-demo-part="draft"]').focus());
   }
   function openImageSettings() {
     hidePetMenu();
@@ -384,7 +384,7 @@
     state.imageSettingsOpen = true;
     state.imageSettingsState = model.snapshot().imageState === 'default' ? 'received' : model.snapshot().imageState;
     render(model.snapshot());
-    imageSettings.querySelector('[data-demo-part="setting-state"]').focus();
+    imageSettings.querySelector('[data-desktop-demo-part="setting-state"]').focus();
   }
   function closeImageSettings() {
     state.imageSettingsOpen = false;
@@ -395,7 +395,7 @@
   }
   async function addNativeFiles() {
     let files = [];
-    try { files = await bridge.pickDemoFiles(); }
+    try { files = await bridge.pickDesktopDemoFiles(); }
     catch { showNotice('文件选择暂时不可用，请重试。'); return; }
     if (Array.isArray(files) && files.length) model.addAttachments(files);
   }
@@ -403,27 +403,27 @@
     const result = model.chooseDropAction('chat');
     if (!result?.ok) return;
     clearPreviewUrls(result.clearIds);
-    await bridge.clearDroppedDemoFiles(result.clearIds).catch(() => {});
+    await bridge.clearDroppedDesktopDemoFiles(result.clearIds).catch(() => {});
     hidePetMenu();
-    window.requestAnimationFrame(() => chat.querySelector('[data-demo-part="draft"]').focus());
+    window.requestAnimationFrame(() => chat.querySelector('[data-desktop-demo-part="draft"]').focus());
   }
   async function routeToAssistant() {
     const ids = model.snapshot().droppedFiles.map(file => file.id);
     hidePetMenu();
     model.chooseDropAction('assistant');
     clearPreviewUrls(ids);
-    await bridge.clearDroppedDemoFiles(ids).catch(() => {});
+    await bridge.clearDroppedDesktopDemoFiles(ids).catch(() => {});
   }
   async function applyDroppedImage() {
     const snapshot = model.snapshot();
-    const selectedId = imageAssignment.querySelector('[data-demo-part="drop-image-file"]').value;
+    const selectedId = imageAssignment.querySelector('[data-desktop-demo-part="drop-image-file"]').value;
     const file = snapshot.droppedFiles.find(item => item.id === selectedId && item.imageSupported);
-    const imageState = imageAssignment.querySelector('[data-demo-part="drop-image-state"]').value;
+    const imageState = imageAssignment.querySelector('[data-desktop-demo-part="drop-image-state"]').value;
     if (!file || !STATES.includes(imageState)) return;
-    const button = imageAssignment.querySelector('[data-demo-action="apply-drop-image"]');
+    const button = imageAssignment.querySelector('[data-desktop-demo-action="apply-drop-image"]');
     button.disabled = true;
     try {
-      const result = await bridge.importDroppedDemoImage(file.id, imageState);
+      const result = await bridge.importDroppedDesktopDemoImage(file.id, imageState);
       if (!result?.ok) { showNotice(result?.error || '图片导入失败，请重试。'); button.disabled = false; return; }
       model.setImageMappings(result.images);
       state.imageSettingsState = imageState;
@@ -440,7 +440,7 @@
   async function importSettingImage() {
     const imageState = state.imageSettingsState;
     try {
-      const result = await bridge.pickDemoStateImage(imageState);
+      const result = await bridge.pickDesktopDemoStateImage(imageState);
       if (result?.canceled) return;
       if (!result?.ok) { showNotice(result?.error || '图片导入失败，请重试。'); return; }
       model.setImageMappings(result.images);
@@ -449,7 +449,7 @@
   }
   async function resetSettingImage() {
     const imageState = state.imageSettingsState;
-    const result = await bridge.resetDemoStateImage(imageState).catch(() => ({ ok: false }));
+    const result = await bridge.resetDesktopDemoStateImage(imageState).catch(() => ({ ok: false }));
     if (!result?.ok) { showNotice('恢复内置图片失败，请重试。'); return; }
     model.setImageMappings(result.images);
     showNotice(`已恢复「${STATE_LABELS[imageState]}」内置图片。`);
@@ -486,33 +486,33 @@
   }
 
   document.addEventListener('click', event => {
-    const control = event.target.closest('[data-demo-control]');
-    if (control) { handleAction(control.dataset.demoControl); return; }
-    const action = event.target.closest('[data-demo-action]');
-    if (action) { handleAction(action.dataset.demoAction); return; }
-    const remove = event.target.closest('[data-demo-remove]');
+    const control = event.target.closest('[data-desktop-demo-control]');
+    if (control) { handleAction(control.dataset.desktopDemoControl); return; }
+    const action = event.target.closest('[data-desktop-demo-action]');
+    if (action) { handleAction(action.dataset.desktopDemoAction); return; }
+    const remove = event.target.closest('[data-desktop-demo-remove]');
     if (remove) {
-      const item = remove.closest('.whale-demo-message') ? null : remove.dataset.demoRemove;
+      const item = remove.closest('.desktop-demo-message') ? null : remove.dataset.desktopDemoRemove;
       if (item) model.removeAttachment(item);
     }
   });
-  chat.querySelector('[data-demo-part="model"]').addEventListener('change', event => model.setModel(event.target.value));
-  chat.querySelector('[data-demo-part="draft"]').addEventListener('input', event => model.setDraft(event.target.value));
-  chat.querySelector('[data-demo-part="draft"]').addEventListener('compositionstart', () => { state.composing = true; });
-  chat.querySelector('[data-demo-part="draft"]').addEventListener('compositionend', () => { state.composing = false; });
-  chat.querySelector('[data-demo-part="draft"]').addEventListener('keydown', event => {
+  chat.querySelector('[data-desktop-demo-part="model"]').addEventListener('change', event => model.setModel(event.target.value));
+  chat.querySelector('[data-desktop-demo-part="draft"]').addEventListener('input', event => model.setDraft(event.target.value));
+  chat.querySelector('[data-desktop-demo-part="draft"]').addEventListener('compositionstart', () => { state.composing = true; });
+  chat.querySelector('[data-desktop-demo-part="draft"]').addEventListener('compositionend', () => { state.composing = false; });
+  chat.querySelector('[data-desktop-demo-part="draft"]').addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.shiftKey || state.composing || event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
     model.send();
   });
-  imageSettings.querySelector('[data-demo-part="setting-state"]').addEventListener('change', event => {
+  imageSettings.querySelector('[data-desktop-demo-part="setting-state"]').addEventListener('change', event => {
     state.imageSettingsState = event.target.value;
     render(model.snapshot());
   });
-  imageAssignment.querySelector('[data-demo-part="drop-image-file"]').addEventListener('change', () => renderImageAssignment(model.snapshot()));
-  imageAssignment.querySelector('[data-demo-part="drop-image-state"]').addEventListener('change', event => { state.imageSettingsState = event.target.value; });
-  task.querySelector('[data-demo-part="task-kind"]').addEventListener('change', event => model.setTaskKind(event.target.value));
-  task.querySelector('[data-demo-part="task-notes"]').addEventListener('input', event => model.setTaskNotes(event.target.value));
+  imageAssignment.querySelector('[data-desktop-demo-part="drop-image-file"]').addEventListener('change', () => renderImageAssignment(model.snapshot()));
+  imageAssignment.querySelector('[data-desktop-demo-part="drop-image-state"]').addEventListener('change', event => { state.imageSettingsState = event.target.value; });
+  task.querySelector('[data-desktop-demo-part="task-kind"]').addEventListener('change', event => model.setTaskKind(event.target.value));
+  task.querySelector('[data-desktop-demo-part="task-notes"]').addEventListener('input', event => model.setTaskNotes(event.target.value));
   for (const element of [chat, fileActions, task, imageSettings, imageAssignment]) {
     element.addEventListener('cancel', event => {
       event.preventDefault();
@@ -562,20 +562,20 @@
     const epoch = ++activeDropEpoch;
     const previousIds = model.snapshot().droppedFiles.map(file => file.id);
     clearPreviewUrls(previousIds);
-    bridge.clearDroppedDemoFiles(previousIds).catch(() => {});
+    bridge.clearDroppedDesktopDemoFiles(previousIds).catch(() => {});
     const rawFiles = Array.from(event.dataTransfer.files || []);
     if (!rawFiles.length) {
       model.drop([{ name: '拖入项目', isFile: false, error: '暂不支持文件夹或无法读取的项目，请拖入普通文件' }]);
       return;
     }
     let files = [];
-    try { files = await bridge.inspectDroppedDemoFiles(rawFiles); }
+    try { files = await bridge.inspectDroppedDesktopDemoFiles(rawFiles); }
     catch {
       if (epoch === activeDropEpoch) model.drop([{ name: '拖入文件', isFile: false, error: '无法读取文件信息，请重新拖入' }]);
       return;
     }
     if (epoch !== activeDropEpoch) {
-      await bridge.clearDroppedDemoFiles(files.map(file => file.id)).catch(() => {});
+      await bridge.clearDroppedDesktopDemoFiles(files.map(file => file.id)).catch(() => {});
       return;
     }
     files.forEach((file, index) => {
@@ -592,7 +592,7 @@
     const preloaded = new Image();
     preloaded.src = stateImageUrl(imageState);
   }
-  bridge.getDemoStateImages().then(images => model.setImageMappings(images)).catch(() => {});
+  bridge.getDesktopDemoStateImages().then(images => model.setImageMappings(images)).catch(() => {});
   render(model.snapshot());
 
   window.addEventListener('beforeunload', () => {
@@ -602,7 +602,7 @@
   }, { once: true });
 
   if (bridge.testMode) {
-    window.__whaleDemoSmoke = Object.freeze({
+    window.__desktopDemoSmoke = Object.freeze({
       async reset() {
         model.dispose();
         for (const url of previews.values()) URL.revokeObjectURL(url);
@@ -611,28 +611,28 @@
         model.setDraft('');
         model.setModel('fast');
       },
-      openChat() { controls.querySelector('[data-demo-control="chat"]').click(); },
-      setModel(id) { const select = chat.querySelector('[data-demo-part="model"]'); select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })); },
-      setDraft(value) { const input = chat.querySelector('[data-demo-part="draft"]'); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); },
-      send() { chat.querySelector('[data-demo-action="send"]').click(); },
+      openChat() { controls.querySelector('[data-desktop-demo-control="chat"]').click(); },
+      setModel(id) { const select = chat.querySelector('[data-desktop-demo-part="model"]'); select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })); },
+      setDraft(value) { const input = chat.querySelector('[data-desktop-demo-part="draft"]'); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); },
+      send() { chat.querySelector('[data-desktop-demo-action="send"]').click(); },
       addFiles(files) { model.addAttachments(files); },
       dropFiles(files) { model.drop(files); },
-      route(action) { fileActions.querySelector(`[data-demo-action="route-${action}"]`)?.click(); },
-      startTask() { task.querySelector('[data-demo-action="start-task"]').click(); },
+      route(action) { fileActions.querySelector(`[data-desktop-demo-action="route-${action}"]`)?.click(); },
+      startTask() { task.querySelector('[data-desktop-demo-action="start-task"]').click(); },
       getState() { return model.snapshot(); },
-      async refreshImages() { model.setImageMappings(await bridge.getDemoStateImages()); },
+      async refreshImages() { model.setImageMappings(await bridge.getDesktopDemoStateImages()); },
       async openImageSettings() { state.imageSettingsOpen = true; state.imageSettingsState = 'received'; render(model.snapshot()); },
       async waitForImage() { await new Promise(resolve => { if (avatar?.complete && avatar.naturalWidth) return resolve(); const timer = setTimeout(resolve, 1800); avatar?.addEventListener('load', () => { clearTimeout(timer); resolve(); }, { once: true }); }); return { src: avatar?.currentSrc || '', width: avatar?.naturalWidth || 0, height: avatar?.naturalHeight || 0, visible: !!avatar?.classList.contains('is-visible') }; },
-      async waitForSettingImage() { const image=imageSettings.querySelector('[data-demo-part="setting-preview"]'); await new Promise(resolve => { if (image.complete && image.naturalWidth) return resolve(); const timer=setTimeout(resolve,1800); image.addEventListener('load',()=>{clearTimeout(timer);resolve();},{once:true}); }); return {src:image.currentSrc||'',width:image.naturalWidth||0,height:image.naturalHeight||0,open:imageSettings.open}; },
+      async waitForSettingImage() { const image=imageSettings.querySelector('[data-desktop-demo-part="setting-preview"]'); await new Promise(resolve => { if (image.complete && image.naturalWidth) return resolve(); const timer=setTimeout(resolve,1800); image.addEventListener('load',()=>{clearTimeout(timer);resolve();},{once:true}); }); return {src:image.currentSrc||'',width:image.naturalWidth||0,height:image.naturalHeight||0,open:imageSettings.open}; },
       geometry() { return { chat: chat.getBoundingClientRect().toJSON(), images: imageSettings.getBoundingClientRect().toJSON(), avatar: avatar?.getBoundingClientRect().toJSON() || null }; },
-      closeChat() { chat.querySelector('[data-demo-action="chat-close"]').click(); },
-      closeTask() { task.querySelector('[data-demo-action="task-close"]').click(); },
-      closeImageAssignment() { imageAssignment.querySelector('[data-demo-action="cancel-image-assignment"]').click(); },
+      closeChat() { chat.querySelector('[data-desktop-demo-action="chat-close"]').click(); },
+      closeTask() { task.querySelector('[data-desktop-demo-action="task-close"]').click(); },
+      closeImageAssignment() { imageAssignment.querySelector('[data-desktop-demo-action="cancel-image-assignment"]').click(); },
       setHover(value) { menuButton?.classList.toggle('dshwv-menu-btn-visible', !!value); render(model.snapshot()); },
       dragEnter() { model.dragEnter(); },
       dragLeave() { model.dragLeave(); },
       pressEnter({ composing = false, shiftKey = false } = {}) {
-        const input = chat.querySelector('[data-demo-part="draft"]');
+        const input = chat.querySelector('[data-desktop-demo-part="draft"]');
         const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, shiftKey, isComposing: composing });
         if (composing) Object.defineProperty(event, 'keyCode', { value: 229 });
         input.dispatchEvent(event);

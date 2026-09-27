@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = await readFile(path.join(root, 'desktop/ui/demo-model.js'), 'utf8');
+const source = await readFile(path.join(root, 'desktop/ui/desktop-demo-model.js'), 'utf8');
 const context = vm.createContext({ setTimeout, clearTimeout });
-vm.runInContext(source, context, { filename: 'desktop/ui/demo-model.js' });
-const { createDemoModel } = context.WhaleDemoModel;
+vm.runInContext(source, context, { filename: 'desktop/ui/desktop-demo-model.js' });
+const { createDesktopDemoModel } = context.DesktopDemoModel;
 
 function controlledClock() {
   const jobs = [];
@@ -30,7 +30,7 @@ const file = (id, name, extra = {}) => ({ id, name, extension: name.split('.').p
 
 test('chat opens and closes without losing its draft or existing conversation', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   model.openChat();
   model.setDraft('还在编辑的草稿');
   model.closeChat();
@@ -50,7 +50,7 @@ test('chat opens and closes without losing its draft or existing conversation', 
 
 test('model choice is captured in the submitted message and local simulated reply', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   model.setModel('deep');
   model.setDraft('检查这个计划');
   assert.equal(model.send(), true);
@@ -68,7 +68,7 @@ test('model choice is captured in the submitted message and local simulated repl
 
 test('multiple attachments share stable records, deduplicate, remove individually, and cancel cleanly', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   const first = file('a', '预算 表.xlsx', { extension: 'xlsx', type: 'XLSX' });
   const second = file('b', '图片.png', { extension: 'png', type: 'PNG', isImage: true, imageSupported: true });
   assert.equal(model.addAttachments([first, second, first]), 2);
@@ -89,7 +89,7 @@ test('multiple attachments share stable records, deduplicate, remove individuall
 });
 
 test('attachment list is capped at 20 across repeated imports and reports ignored files', () => {
-  const model = createDemoModel();
+  const model = createDesktopDemoModel();
   const files = Array.from({ length: 24 }, (_, index) => file(`file-${index}`, `文件-${index}.txt`, { extension: 'txt' }));
   assert.equal(model.addAttachments(files.slice(0, 17)), 17);
   assert.equal(model.addAttachments(files.slice(17)), 3);
@@ -99,7 +99,7 @@ test('attachment list is capped at 20 across repeated imports and reports ignore
 
 test('drag enter, drag leave, drop, and the chat/assistant routes move between explicit states', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel, taskStepDelay: 20, completionDelay: 40 });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel, taskStepDelay: 20, completionDelay: 40 });
   model.dragEnter();
   assert.equal(model.snapshot().imageState, 'dragging');
   model.dragLeave();
@@ -131,7 +131,7 @@ test('drag enter, drag leave, drop, and the chat/assistant routes move between e
 
 test('drop classification keeps invalid directories visible and blocks image routing without supported images', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   model.drop([{ id: 'folder', name: '我的资料夹', isFile: false, error: '目录暂不支持' }]);
   assert.equal(model.snapshot().actionOpen, true);
   assert.equal(model.snapshot().dropErrors[0].error, '目录暂不支持');
@@ -144,11 +144,11 @@ test('drop classification keeps invalid directories visible and blocks image rou
 
 test('state image mappings survive model restoration and broken images fall back to the built-in image', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   const mapping = { id: 'asset-123', name: '雨天小鲸鱼.webp', mime: 'image/webp', size: 8000 };
   assert.equal(model.setImageMapping('received', mapping), true);
   const saved = model.snapshot().imageMappings;
-  const restored = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const restored = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   restored.setImageMappings(saved);
   assert.deepEqual(JSON.parse(JSON.stringify(restored.snapshot().imageMappings.received)), mapping);
   assert.equal(restored.imageLoadFailed('received', 'stale-id'), false);
@@ -159,7 +159,7 @@ test('state image mappings survive model restoration and broken images fall back
 
 test('closing a running task invalidates delayed callbacks and restores the avatar state', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   model.drop([file('a', '待处理.md', { extension: 'md' })]);
   model.chooseDropAction('assistant');
   model.startTask();
@@ -173,7 +173,7 @@ test('closing a running task invalidates delayed callbacks and restores the avat
 
 test('closing during drag and dispose clear transient work without changing saved images', () => {
   const clock = controlledClock();
-  const model = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
+  const model = createDesktopDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   model.setImageMapping('processing', { id: 'saved', name: '自定义.png', mime: 'image/png', size: 42 });
   model.dragEnter();
   model.dispose();

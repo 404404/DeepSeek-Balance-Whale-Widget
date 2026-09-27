@@ -38,7 +38,7 @@
     };
   }
 
-  function createDemoModel(options = {}) {
+  function createDesktopDemoModel(options = {}) {
     const schedule = options.schedule || ((callback, delay) => setTimeout(callback, delay));
     const cancel = options.cancel || (handle => clearTimeout(handle));
     const replyDelay = Math.max(0, Number(options.replyDelay) || 760);
@@ -290,10 +290,10 @@
     };
   }
 
-  globalThis.WhaleDemoModel = Object.freeze({
+  globalThis.DesktopDemoModel = Object.freeze({
     STATES, STATE_LABELS, MODELS, COMPLETE_DURATION_MS,
     supportedImageExtensions: Object.freeze([...supportedImageExtensions]),
-    createDemoModel,
+    createDesktopDemoModel,
     normalizeFile,
   });
 })();

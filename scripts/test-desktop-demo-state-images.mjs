@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { deflateSync } from 'node:zlib';
-import { DemoStateImages } from '../lib/demo-state-images.mjs';
+import { DesktopDemoStateImages } from '../lib/desktop-demo-state-images.mjs';
 
 const crcTable = new Uint32Array(256);
 for (let n = 0; n < 256; n += 1) {
@@ -37,7 +37,7 @@ function onePixelPng(color = [25, 85, 145, 255]) {
 }
 
 test('state images are validated, copied into the Demo namespace, and survive source removal and restart', async t => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'whale-demo-images-'));
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'desktop-demo-images-'));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));
   const rolesDirectory = path.join(temp, 'existing-user-roles');
   await fs.mkdir(rolesDirectory);
@@ -46,7 +46,7 @@ test('state images are validated, copied into the Demo namespace, and survive so
   const original = path.join(temp, '原始 图片.png');
   await fs.writeFile(original, onePixelPng());
 
-  const service = new DemoStateImages({ dataDir: temp });
+  const service = new DesktopDemoStateImages({ dataDir: temp });
   await service.init();
   const imported = await service.importFile(original, 'received');
   assert.equal(imported.name, '原始 图片.png');
@@ -54,15 +54,15 @@ test('state images are validated, copied into the Demo namespace, and survive so
   assert.ok(imported.id);
   assert.equal(JSON.stringify(service.getMappings()).includes(original), false);
 
-  const indexPath = path.join(temp, 'demo-quick-chat', 'state-images.json');
+  const indexPath = path.join(temp, 'desktop-demo-quick-chat', 'state-images.json');
   const saved = JSON.parse(await fs.readFile(indexPath, 'utf8'));
   assert.equal(saved.received.id, imported.id);
   assert.equal(JSON.stringify(saved).includes(original), false);
-  const storedPath = path.join(temp, 'demo-quick-chat', 'images', `${imported.id}.png`);
+  const storedPath = path.join(temp, 'desktop-demo-quick-chat', 'images', `${imported.id}.png`);
   assert.deepEqual(await fs.readFile(storedPath), onePixelPng());
   await fs.rm(original);
 
-  const restarted = new DemoStateImages({ dataDir: temp });
+  const restarted = new DesktopDemoStateImages({ dataDir: temp });
   const restored = await restarted.init();
   assert.deepEqual(restored.received, imported);
   const storedImage = await restarted.read('received');
@@ -72,9 +72,9 @@ test('state images are validated, copied into the Demo namespace, and survive so
 });
 
 test('unsupported, mislabeled, directory, and corrupted state images are rejected with a built-in fallback record', async t => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'whale-demo-image-errors-'));
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'desktop-demo-image-errors-'));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));
-  const service = new DemoStateImages({ dataDir: temp });
+  const service = new DesktopDemoStateImages({ dataDir: temp });
   await service.init();
   const directory = path.join(temp, 'a-directory');
   await fs.mkdir(directory);
@@ -84,23 +84,23 @@ test('unsupported, mislabeled, directory, and corrupted state images are rejecte
   await assert.rejects(service.importBuffer(Buffer.from('not an image'), 'broken.png', 'dragging'));
 
   const imported = await service.importBuffer(onePixelPng(), 'work.png', 'processing');
-  const savedFile = path.join(temp, 'demo-quick-chat', 'images', `${imported.id}.png`);
+  const savedFile = path.join(temp, 'desktop-demo-quick-chat', 'images', `${imported.id}.png`);
   await fs.writeFile(savedFile, Buffer.from('corrupt after import'));
   assert.equal(await service.read('processing'), null);
   assert.equal(service.getMappings().processing, undefined);
-  assert.equal(JSON.parse(await fs.readFile(path.join(temp, 'demo-quick-chat', 'state-images.json'), 'utf8')).processing, undefined);
+  assert.equal(JSON.parse(await fs.readFile(path.join(temp, 'desktop-demo-quick-chat', 'state-images.json'), 'utf8')).processing, undefined);
 });
 
 test('state replacement and reset affect only the chosen state mapping', async t => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'whale-demo-image-reset-'));
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'desktop-demo-image-reset-'));
   t.after(() => fs.rm(temp, { recursive: true, force: true }));
-  const service = new DemoStateImages({ dataDir: temp });
+  const service = new DesktopDemoStateImages({ dataDir: temp });
   await service.init();
   const first = await service.importBuffer(onePixelPng([25, 85, 145, 255]), 'blue.png', 'received');
   await service.importBuffer(onePixelPng([180, 65, 70, 255]), 'red.png', 'processing');
   const second = await service.importBuffer(onePixelPng([25, 85, 145, 255]), 'replacement.png', 'received');
   assert.notEqual(first.id, second.id);
-  await assert.rejects(fs.stat(path.join(temp, 'demo-quick-chat', 'images', `${first.id}.png`)), /ENOENT/);
+  await assert.rejects(fs.stat(path.join(temp, 'desktop-demo-quick-chat', 'images', `${first.id}.png`)), /ENOENT/);
   assert.equal(service.getMappings().processing.name, 'red.png');
   assert.equal(await service.reset('received'), true);
   assert.equal(service.getMappings().received, undefined);

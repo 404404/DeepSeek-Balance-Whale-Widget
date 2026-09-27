@@ -10,20 +10,22 @@ const { randomUUID } = require('node:crypto');
 const { targetWidgetSize, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
 
 const root = path.resolve(__dirname, '..');
+app.setName('desktop-demo');
+if (process.platform === 'win32') app.setAppUserModelId('com.404404.desktopdemo');
 const MIN_WIDGET_SIZE = 122;
 const DEFAULT_WIDGET_SIZE = 375;
 const MAX_WIDGET_SIZE = 625;
 const args = process.argv.slice(1);
-const fixture = process.env.WHALE_DESKTOP_TEST === '1';
-const layoutTest = fixture || process.argv.includes('--whale-render-test');
-const interactionTest = process.argv.includes('--whale-interaction-test');
-const demoSmokeTest = process.argv.includes('--whale-demo-smoke');
-const explicitDataDir = args.find(value => value.startsWith('--whale-data='))?.slice('--whale-data='.length);
-const productName = 'DeepSeek-Balance-Whale-Widget';
-const defaultDataDir = path.join(os.homedir(), 'Library', 'Application Support', productName);
-const dataDir = path.resolve(explicitDataDir || process.env.WHALE_HOME || defaultDataDir);
+const fixture = process.env.DESKTOP_DEMO_TEST === '1';
+const layoutTest = fixture || process.argv.includes('--desktop-demo-render-test');
+const interactionTest = process.argv.includes('--desktop-demo-interaction-test');
+const desktopDemoSmokeTest = process.argv.includes('--desktop-demo-smoke');
+const explicitDataDir = args.find(value => value.startsWith('--desktop-demo-data='))?.slice('--desktop-demo-data='.length);
+const productName = 'desktop-demo';
+const defaultDataDir = path.join(app.getPath('appData'), productName);
+const dataDir = path.resolve(explicitDataDir || process.env.DESKTOP_DEMO_HOME || defaultDataDir);
 const startupAt = Date.now();
-const startup = { revision: 'mac-standalone-0.1.0', requestedAt: Number(process.env.WHALE_LAUNCH_TIME) || startupAt, mainAt: startupAt, mode: 'standalone', phases: {} };
+const startup = { revision: 'desktop-demo-standalone-0.2.0', requestedAt: Number(process.env.WHALE_LAUNCH_TIME) || startupAt, mainAt: startupAt, mode: 'standalone', phases: {} };
 const markStartup = phase => { if (startup.phases[phase] == null) startup.phases[phase] = Date.now() - startup.requestedAt; };
 const writeStartup = () => fs.promises.writeFile(path.join(dataDir, "startup-timings.json"), JSON.stringify(startup, null, 2)).catch(() => {});
 markStartup('main');
@@ -63,18 +65,18 @@ let lastNativeWidgetSize = '';
 let lastNativeRootOffset = '';
 let lastLayoutDiagnostic = null;
 let hitRegions = [];
-let demoStateImages;
-const demoDropTokens = new Map();
+let desktopDemoStateImages;
+const desktopDemoDropTokens = new Map();
 let inputRoutingReason = 'startup';
 let interactionTestStarted = false;
-let demoSmokeTestStarted = false;
+let desktopDemoSmokeTestStarted = false;
 const rendererErrors = [];
 const fixtureOpenedLinks = [];
 const stateFile = path.join(dataDir, 'ui-state.json');
 const windowStateFile = path.join(dataDir, 'window-state.json');
-const demoStates = new Set(['default', 'dragging', 'received', 'processing', 'complete']);
-const demoFileMimes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', json: 'application/json', csv: 'text/csv', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', zip: 'application/zip' };
-function describeDemoFile(filePath, rememberPath = false) {
+const desktopDemoStates = new Set(['default', 'dragging', 'received', 'processing', 'complete']);
+const desktopDemoFileMimes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', json: 'application/json', csv: 'text/csv', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', zip: 'application/zip' };
+function describeDesktopDemoFile(filePath, rememberPath = false) {
   const fallback = { id: randomUUID(), name: '无法读取的文件', type: '文件', extension: '', size: 0, isFile: false, isImage: false, imageSupported: false, error: '文件不可用或访问已取消' };
   if (typeof filePath !== 'string' || !filePath || filePath.length > 8192) return fallback;
   const id = randomUUID();
@@ -88,10 +90,10 @@ function describeDemoFile(filePath, rememberPath = false) {
     const size = stat.size;
     const isImage = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tif', 'tiff'].includes(extension);
     const imageSupported = ['png', 'jpg', 'jpeg', 'webp'].includes(extension) && size > 0 && size <= 20 * 1024 * 1024;
-    if (rememberPath && imageSupported) demoDropTokens.set(id, filePath);
+    if (rememberPath && imageSupported) desktopDemoDropTokens.set(id, filePath);
     return {
-      id, name, type: (demoFileMimes[extension] || extension.toUpperCase() || '文件'), extension,
-      mime: demoFileMimes[extension] || 'application/octet-stream', size, isFile: true,
+      id, name, type: (desktopDemoFileMimes[extension] || extension.toUpperCase() || '文件'), extension,
+      mime: desktopDemoFileMimes[extension] || 'application/octet-stream', size, isFile: true,
       isImage, imageSupported,
     };
   } catch {
@@ -171,7 +173,7 @@ function refreshTrayMenu() {
     { label: '人偶置顶', type: 'checkbox', checked: alwaysOnTop, click: item => setPinned(!!item.checked) },
     { label: '恢复人偶位置', click: restoreWidget },
     { type: 'separator' },
-    { label: '退出 AI Balance Whale', click: () => app.quit() },
+    { label: '退出 desktop-demo', click: () => app.quit() },
   ]));
 }
 function setPinned(next) {
@@ -349,15 +351,15 @@ async function runInteractionTest() {
   }
   try { save(path.join(dataDir, 'interaction-test.json'), evidence); } catch {}
 }
-async function runDemoSmokeTest() {
-  if (demoSmokeTestStarted || !demoSmokeTest || !window || window.isDestroyed()) return;
-  demoSmokeTestStarted = true;
+async function runDesktopDemoSmokeTest() {
+  if (desktopDemoSmokeTestStarted || !desktopDemoSmokeTest || !window || window.isDestroyed()) return;
+  desktopDemoSmokeTestStarted = true;
   const evidence = {
-    version: 'mac-quick-chat-demo-1', pass: false, syntheticInputOnly: true,
+    version: 'desktop-demo-smoke-1', pass: false, syntheticInputOnly: true,
     finderNativeDropValidated: false, physicalImeValidated: false, mousePassthroughValidated: false,
     sourceSha: process.env.GITHUB_SHA || null, screenshots: [], steps: [],
   };
-  const shots = path.join(dataDir, 'demo-screenshots');
+  const shots = path.join(dataDir, 'desktop-demo-screenshots');
   const record = (name, pass, detail = {}) => {
     evidence.steps.push({ name, pass: pass === true, ...detail });
     if (pass !== true) throw new Error(`demo smoke step failed: ${name}`);
@@ -372,78 +374,78 @@ async function runDemoSmokeTest() {
   try {
     await fs.promises.mkdir(shots, { recursive: true });
     if (!await waitForInteractionReady()) throw new Error('standalone renderer did not become ready');
-    const available = await interactionRendererEval('!!window.__whaleDemoSmoke');
+    const available = await interactionRendererEval('!!window.__desktopDemoSmoke');
     record('demo-controller-loaded-in-packaged-renderer', available === true);
 
-    await interactionRendererEval(`(async () => { const api=window.__whaleDemoSmoke; api.setHover(true); api.openChat(); await new Promise(resolve=>setTimeout(resolve,120)); const buttons=[...document.querySelectorAll('.whale-demo-controls .whale-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
+    await interactionRendererEval(`(async () => { const api=window.__desktopDemoSmoke; api.setHover(true); api.openChat(); await new Promise(resolve=>setTimeout(resolve,120)); const buttons=[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
     await interactionDelay(220);
-    const chatOpen = await interactionRendererEval(`(() => { const buttons=[...document.querySelectorAll('.whale-demo-controls .whale-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
+    const chatOpen = await interactionRendererEval(`(() => { const buttons=[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
     const chatFits = chatOpen?.panel?.open === true && chatOpen.buttons[0] === true && chatOpen.panel.left >= -1 && chatOpen.panel.top >= -1 && chatOpen.panel.right <= chatOpen.viewport.width + 1 && chatOpen.panel.bottom <= chatOpen.viewport.height + 1;
     record('message-button-and-chat-panel-geometry', chatFits, chatOpen);
-    await screenshot('demo-chat-empty.png');
+    await screenshot('desktop-demo-chat-empty.png');
 
-    const messagesBeforeIme = await interactionRendererEval(`(() => { const api=window.__whaleDemoSmoke; api.setDraft('中文输入法组合中'); const composing=api.pressEnter({composing:true}); const shifted=api.pressEnter({shiftKey:true}); return {composing,shifted}; })()`);
+    const messagesBeforeIme = await interactionRendererEval(`(() => { const api=window.__desktopDemoSmoke; api.setDraft('中文输入法组合中'); const composing=api.pressEnter({composing:true}); const shifted=api.pressEnter({shiftKey:true}); return {composing,shifted}; })()`);
     record('ime-composition-and-shift-enter-do-not-submit', messagesBeforeIme?.composing?.messages === messagesBeforeIme?.shifted?.messages && messagesBeforeIme.composing.messages === 0 && messagesBeforeIme.composing.draft === '中文输入法组合中');
-    await interactionRendererEval('window.__whaleDemoSmoke.setDraft(""); window.__whaleDemoSmoke.setModel("deep"); window.__whaleDemoSmoke.setDraft("请说明本地演示流程"); window.__whaleDemoSmoke.send(); true');
+    await interactionRendererEval('window.__desktopDemoSmoke.setDraft(""); window.__desktopDemoSmoke.setModel("deep"); window.__desktopDemoSmoke.setDraft("请说明本地演示流程"); window.__desktopDemoSmoke.send(); true');
     await interactionDelay(950);
-    const chatReply = await interactionRendererEval(`(() => { const s=window.__whaleDemoSmoke.getState(); return {model:s.messages[1]?.modelId,status:s.messages[1]?.status,text:s.messages[1]?.text,buttonVisible:document.querySelector('[data-demo-control="chat"]').classList.contains('is-visible')}; })()`);
+    const chatReply = await interactionRendererEval(`(() => { const s=window.__desktopDemoSmoke.getState(); return {model:s.messages[1]?.modelId,status:s.messages[1]?.status,text:s.messages[1]?.text,buttonVisible:document.querySelector('[data-desktop-demo-control="chat"]').classList.contains('is-visible')}; })()`);
     record('selected-model-and-local-chat-reply', chatReply?.model === 'deep' && chatReply.status === 'complete' && /深度思考（演示）/.test(chatReply.text) && /没有调用真实模型/.test(chatReply.text) && chatReply.buttonVisible, chatReply);
-    await screenshot('demo-chat-reply.png');
+    await screenshot('desktop-demo-chat-reply.png');
 
-    await interactionRendererEval(`(() => { window.__whaleDemoSmoke.addFiles([{id:'demo-attach-1',name:'预算 表.xlsx',extension:'xlsx',type:'XLSX',size:3812,isFile:true},{id:'demo-attach-2',name:'参考 图片.png',extension:'png',type:'PNG',size:2048,isFile:true,isImage:true,imageSupported:true}]); return true; })()`);
-    const attachments = await interactionRendererEval(`(() => ({rows:document.querySelectorAll('[data-demo-part="attachments"] .whale-demo-file').length,sendDisabled:document.querySelector('[data-demo-action="send"]').disabled}))()`);
+    await interactionRendererEval(`(() => { window.__desktopDemoSmoke.addFiles([{id:'desktop-demo-attach-1',name:'预算 表.xlsx',extension:'xlsx',type:'XLSX',size:3812,isFile:true},{id:'desktop-demo-attach-2',name:'参考 图片.png',extension:'png',type:'PNG',size:2048,isFile:true,isImage:true,imageSupported:true}]); return true; })()`);
+    const attachments = await interactionRendererEval(`(() => ({rows:document.querySelectorAll('[data-desktop-demo-part="attachments"] .desktop-demo-file').length,sendDisabled:document.querySelector('[data-desktop-demo-action="send"]').disabled}))()`);
     record('multiple-attachments-render-with-type-and-size', attachments.rows === 2 && attachments.sendDisabled === false, attachments);
-    await screenshot('demo-chat-attachments.png');
-    await interactionRendererEval('window.__whaleDemoSmoke.send(); true');
+    await screenshot('desktop-demo-chat-attachments.png');
+    await interactionRendererEval('window.__desktopDemoSmoke.send(); true');
     await interactionDelay(900);
-    const attachmentMessage = await interactionRendererEval(`(() => { const s=window.__whaleDemoSmoke.getState(); return {count:s.messages.length,files:s.messages[2]?.files?.length,answer:s.messages[3]?.status}; })()`);
+    const attachmentMessage = await interactionRendererEval(`(() => { const s=window.__desktopDemoSmoke.getState(); return {count:s.messages.length,files:s.messages[2]?.files?.length,answer:s.messages[3]?.status}; })()`);
     record('attachment-only-chat-message', attachmentMessage.count === 4 && attachmentMessage.files === 2 && attachmentMessage.answer === 'complete', attachmentMessage);
 
-    await interactionRendererEval('window.__whaleDemoSmoke.closeChat(); window.__whaleDemoSmoke.dropFiles([{id:"demo-route-chat",name:"拖入聊天的 文件.txt",extension:"txt",type:"TXT",size:915,isFile:true}]); true');
-    const actions = await interactionRendererEval(`(() => ({open:document.querySelector('[aria-label="收到文件"]').open,rows:document.querySelectorAll('[data-demo-part="drop-files"] .whale-demo-file').length,chat:window.__whaleDemoSmoke.getState().chatOpen}))()`);
+    await interactionRendererEval('window.__desktopDemoSmoke.closeChat(); window.__desktopDemoSmoke.dropFiles([{id:"desktop-demo-route-chat",name:"拖入聊天的 文件.txt",extension:"txt",type:"TXT",size:915,isFile:true}]); true');
+    const actions = await interactionRendererEval(`(() => ({open:document.querySelector('[aria-label="收到文件"]').open,rows:document.querySelectorAll('[data-desktop-demo-part="drop-files"] .desktop-demo-file').length,chat:window.__desktopDemoSmoke.getState().chatOpen}))()`);
     record('file-drop-opens-choice-surface', actions.open && actions.rows === 1 && actions.chat === false, actions);
-    await screenshot('demo-file-actions.png');
-    await interactionRendererEval('window.__whaleDemoSmoke.route("chat"); true');
-    const routedChat = await interactionRendererEval(`(() => { const s=window.__whaleDemoSmoke.getState(); return {open:s.chatOpen,queued:s.attachments.map(file=>file.name),messages:s.messages.length,dropOpen:document.querySelector('[aria-label="收到文件"]').open}; })()`);
+    await screenshot('desktop-demo-file-actions.png');
+    await interactionRendererEval('window.__desktopDemoSmoke.route("chat"); true');
+    const routedChat = await interactionRendererEval(`(() => { const s=window.__desktopDemoSmoke.getState(); return {open:s.chatOpen,queued:s.attachments.map(file=>file.name),messages:s.messages.length,dropOpen:document.querySelector('[aria-label="收到文件"]').open}; })()`);
     record('send-to-chat-queues-file-without-auto-send', routedChat.open && routedChat.queued.includes('拖入聊天的 文件.txt') && routedChat.messages === 4 && !routedChat.dropOpen, routedChat);
 
     const bundledImage = path.join(root, 'assets', 'DSniang1.png');
-    const savedImage = await demoStateImages.importFile(bundledImage, 'received');
-    await interactionRendererEval('(async () => { window.__whaleDemoSmoke.closeChat(); await window.__whaleDemoSmoke.refreshImages(); return true; })()');
-    await interactionRendererEval('window.__whaleDemoSmoke.setHover(false); window.__whaleDemoSmoke.dragEnter(); true');
-    const draggingImage = await interactionRendererEval('window.__whaleDemoSmoke.waitForImage()');
-    record('avatar-switches-during-drag-state', draggingImage?.visible && /whale-demo-dragging\.svg/.test(draggingImage.src) && draggingImage.width > 0, { src: draggingImage?.src, width: draggingImage?.width, height: draggingImage?.height });
-    await interactionRendererEval('window.__whaleDemoSmoke.dropFiles([{id:"demo-route-assistant",name:"计划 2026.md",extension:"md",type:"MD",size:2700,isFile:true}]); true');
-    const receivedImage = await interactionRendererEval('window.__whaleDemoSmoke.waitForImage()');
-    record('persisted-custom-received-image-loads-in-avatar', !!(receivedImage?.visible && receivedImage.src.includes('/demo/state-image?state=received') && receivedImage.width > 0 && savedImage?.id), { src: receivedImage?.src, width: receivedImage?.width, height: receivedImage?.height, imageId: savedImage.id });
-    await interactionRendererEval('window.__whaleDemoSmoke.route("assistant"); true');
-    const taskReady = await interactionRendererEval(`(() => { const s=window.__whaleDemoSmoke.getState(); return {open:s.taskOpen,status:s.task?.status,files:document.querySelector('[data-demo-part="task-files"]').textContent}; })()`);
+    const savedImage = await desktopDemoStateImages.importFile(bundledImage, 'received');
+    await interactionRendererEval('(async () => { window.__desktopDemoSmoke.closeChat(); await window.__desktopDemoSmoke.refreshImages(); return true; })()');
+    await interactionRendererEval('window.__desktopDemoSmoke.setHover(false); window.__desktopDemoSmoke.dragEnter(); true');
+    const draggingImage = await interactionRendererEval('window.__desktopDemoSmoke.waitForImage()');
+    record('avatar-switches-during-drag-state', draggingImage?.visible && /desktop-demo-dragging\.svg/.test(draggingImage.src) && draggingImage.width > 0, { src: draggingImage?.src, width: draggingImage?.width, height: draggingImage?.height });
+    await interactionRendererEval('window.__desktopDemoSmoke.dropFiles([{id:"desktop-demo-route-assistant",name:"计划 2026.md",extension:"md",type:"MD",size:2700,isFile:true}]); true');
+    const receivedImage = await interactionRendererEval('window.__desktopDemoSmoke.waitForImage()');
+    record('persisted-custom-received-image-loads-in-avatar', !!(receivedImage?.visible && receivedImage.src.includes('/desktop-demo/state-image?state=received') && receivedImage.width > 0 && savedImage?.id), { src: receivedImage?.src, width: receivedImage?.width, height: receivedImage?.height, imageId: savedImage.id });
+    await interactionRendererEval('window.__desktopDemoSmoke.route("assistant"); true');
+    const taskReady = await interactionRendererEval(`(() => { const s=window.__desktopDemoSmoke.getState(); return {open:s.taskOpen,status:s.task?.status,files:document.querySelector('[data-desktop-demo-part="task-files"]').textContent}; })()`);
     record('assistant-route-opens-a-task-card', taskReady.open && taskReady.status === 'ready' && /计划 2026\.md/.test(taskReady.files), taskReady);
-    await interactionRendererEval('window.__whaleDemoSmoke.startTask(); true');
-    const waiting = await interactionRendererEval('window.__whaleDemoSmoke.getState().task?.status');
+    await interactionRendererEval('window.__desktopDemoSmoke.startTask(); true');
+    const waiting = await interactionRendererEval('window.__desktopDemoSmoke.getState().task?.status');
     record('assistant-task-enters-waiting-state', waiting === 'waiting', { status: waiting });
     await interactionDelay(620);
-    const processing = await interactionRendererEval('window.__whaleDemoSmoke.getState().task?.status');
+    const processing = await interactionRendererEval('window.__desktopDemoSmoke.getState().task?.status');
     record('assistant-task-enters-processing-state', processing === 'processing', { status: processing });
-    await screenshot('demo-assistant-processing.png');
+    await screenshot('desktop-demo-assistant-processing.png');
     await interactionDelay(640);
-    const complete = await interactionRendererEval('window.__whaleDemoSmoke.getState().task?.status');
+    const complete = await interactionRendererEval('window.__desktopDemoSmoke.getState().task?.status');
     record('assistant-task-completes-with-local-demo-result', complete === 'complete', { status: complete });
-    await screenshot('demo-assistant-complete.png');
-    await interactionRendererEval('window.__whaleDemoSmoke.closeTask(); true');
-    const afterTaskClose = await interactionRendererEval(`(() => ({state:window.__whaleDemoSmoke.getState().imageState,open:window.__whaleDemoSmoke.getState().taskOpen}))()`);
+    await screenshot('desktop-demo-assistant-complete.png');
+    await interactionRendererEval('window.__desktopDemoSmoke.closeTask(); true');
+    const afterTaskClose = await interactionRendererEval(`(() => ({state:window.__desktopDemoSmoke.getState().imageState,open:window.__desktopDemoSmoke.getState().taskOpen}))()`);
     record('closing-task-restores-default-avatar-state', afterTaskClose.state === 'default' && !afterTaskClose.open, afterTaskClose);
 
-    await interactionRendererEval('window.__whaleDemoSmoke.dropFiles([{id:"demo-image-route",name:"新鲸鱼.webp",extension:"webp",type:"WEBP",size:2345,isFile:true,isImage:true,imageSupported:true}]); window.__whaleDemoSmoke.route("images"); true');
-    const imageChoice = await interactionRendererEval(`(() => ({open:document.querySelector('[aria-label="选择交互状态图片"]').open,options:document.querySelectorAll('[data-demo-part="drop-image-file"] option').length}))()`);
+    await interactionRendererEval('window.__desktopDemoSmoke.dropFiles([{id:"desktop-demo-image-route",name:"新鲸鱼.webp",extension:"webp",type:"WEBP",size:2345,isFile:true,isImage:true,imageSupported:true}]); window.__desktopDemoSmoke.route("images"); true');
+    const imageChoice = await interactionRendererEval(`(() => ({open:document.querySelector('[aria-label="选择交互状态图片"]').open,options:document.querySelectorAll('[data-desktop-demo-part="drop-image-file"] option').length}))()`);
     record('drop-image-route-opens-state-assignment', imageChoice.open && imageChoice.options === 1, imageChoice);
-    await screenshot('demo-state-image-assignment.png');
-    await interactionRendererEval('window.__whaleDemoSmoke.closeImageAssignment(); window.__whaleDemoSmoke.openImageSettings(); true');
-    const settingPreview = await interactionRendererEval('window.__whaleDemoSmoke.waitForSettingImage()');
-    record('state-image-settings-shows-saved-preview', settingPreview.open && settingPreview.src.includes('/demo/state-image?state=received') && settingPreview.width > 0, settingPreview);
-    await screenshot('demo-state-image-settings.png');
+    await screenshot('desktop-demo-state-image-assignment.png');
+    await interactionRendererEval('window.__desktopDemoSmoke.closeImageAssignment(); window.__desktopDemoSmoke.openImageSettings(); true');
+    const settingPreview = await interactionRendererEval('window.__desktopDemoSmoke.waitForSettingImage()');
+    record('state-image-settings-shows-saved-preview', settingPreview.open && settingPreview.src.includes('/desktop-demo/state-image?state=received') && settingPreview.width > 0, settingPreview);
+    await screenshot('desktop-demo-state-image-settings.png');
 
-    const index = JSON.parse(await fs.promises.readFile(path.join(dataDir, 'demo-quick-chat', 'state-images.json'), 'utf8'));
+    const index = JSON.parse(await fs.promises.readFile(path.join(dataDir, 'desktop-demo-quick-chat', 'state-images.json'), 'utf8'));
     record('state-image-persistence-does-not-save-source-path', index.received?.id === savedImage.id && !JSON.stringify(index).includes(bundledImage), { imageId: index.received?.id, persistedOriginalPath: JSON.stringify(index).includes(bundledImage) });
     evidence.pass = evidence.steps.every(step => step.pass);
   } catch (error) {
@@ -452,7 +454,7 @@ async function runDemoSmokeTest() {
       if (window && !window.isDestroyed()) await screenshot('demo-failure.png');
     } catch {}
   }
-  try { save(path.join(dataDir, 'demo-smoke.json'), evidence); } catch {}
+  try { save(path.join(dataDir, 'desktop-demo-smoke.json'), evidence); } catch {}
 }
 function visibility() {
   if (!window || window.isDestroyed()) return;
@@ -698,9 +700,9 @@ if (!lock) {
   app.on('activate', show);
   app.whenReady().then(async () => {
     markStartup('appReady');
-    const { DemoStateImages } = await import(pathToFileURL(path.join(root, 'lib', 'demo-state-images.mjs')));
-    demoStateImages = new DemoStateImages({ dataDir });
-    await demoStateImages.init();
+    const { DesktopDemoStateImages } = await import(pathToFileURL(path.join(root, 'lib', 'desktop-demo-state-images.mjs')));
+    desktopDemoStateImages = new DesktopDemoStateImages({ dataDir });
+    await desktopDemoStateImages.init();
     const { createDispatcher, UI_ORIGIN } = await import(pathToFileURL(path.join(root, 'runtime', 'dispatcher.mjs')));
     const { startBridge } = await import(pathToFileURL(path.join(root, 'runtime', 'bridge.mjs')));
     dispatcher = createDispatcher({
@@ -717,9 +719,9 @@ if (!lock) {
     session.defaultSession.protocol.handle('whale', async request => {
       const url = new URL(request.url);
       if (url.host !== 'widget') return new Response('', { status: 403 });
-      if (url.pathname === '/demo/state-image') {
+      if (url.pathname === '/desktop-demo/state-image') {
         if (!['GET', 'HEAD'].includes(request.method)) return new Response('', { status: 405 });
-        const image = await demoStateImages.read(url.searchParams.get('state'));
+        const image = await desktopDemoStateImages.read(url.searchParams.get('state'));
         if (!image) return new Response('', { status: 404, headers: { 'cache-control': 'no-store' } });
         return new Response(request.method === 'HEAD' ? null : image.bytes, {
           status: 200,
@@ -747,7 +749,7 @@ if (!lock) {
       hasShadow: false,
       skipTaskbar: true,
       show: false,
-      title: 'AI Balance Whale',
+      title: 'desktop-demo',
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,
@@ -814,36 +816,36 @@ if (!lock) {
     ipcMain.on('whale-save-storage', (event, input) => { if (event.sender === window?.webContents) storeValues(input); });
     ipcMain.on('whale-user-gesture', event => { if (isMainFrame(event)) trustedGestureAt = Date.now(); });
     ipcMain.handle('whale-open-external', (event, url) => isMainFrame(event) ? openWebLink(url) : false);
-    ipcMain.handle('whale-demo-pick-files', async event => {
+    ipcMain.handle('desktop-demo-pick-files', async event => {
       if (!isMainFrame(event)) return [];
       try {
         const result = await dialog.showOpenDialog(window, { title: '添加聊天附件', properties: ['openFile', 'multiSelections'] });
-        return result.canceled ? [] : result.filePaths.slice(0, 20).map(filePath => describeDemoFile(filePath));
+        return result.canceled ? [] : result.filePaths.slice(0, 20).map(filePath => describeDesktopDemoFile(filePath));
       } catch { return []; }
     });
-    ipcMain.handle('whale-demo-inspect-dropped-files', (event, filePaths) => {
+    ipcMain.handle('desktop-demo-inspect-dropped-files', (event, filePaths) => {
       if (!isMainFrame(event) || !Array.isArray(filePaths)) return [];
-      return filePaths.slice(0, 20).map(filePath => describeDemoFile(filePath, true));
+      return filePaths.slice(0, 20).map(filePath => describeDesktopDemoFile(filePath, true));
     });
-    ipcMain.handle('whale-demo-clear-dropped-files', (event, ids) => {
+    ipcMain.handle('desktop-demo-clear-dropped-files', (event, ids) => {
       if (!isMainFrame(event) || !Array.isArray(ids)) return false;
-      for (const id of ids.slice(0, 20)) if (typeof id === 'string') demoDropTokens.delete(id);
+      for (const id of ids.slice(0, 20)) if (typeof id === 'string') desktopDemoDropTokens.delete(id);
       return true;
     });
-    ipcMain.handle('whale-demo-import-dropped-image', async (event, request) => {
+    ipcMain.handle('desktop-demo-import-dropped-image', async (event, request) => {
       if (!isMainFrame(event) || !request || typeof request !== 'object') return { ok: false, error: '无效的图片请求' };
-      const filePath = demoDropTokens.get(request.id);
-      if (!filePath || !demoStates.has(request.state)) return { ok: false, error: '拖入的图片已失效，请重新拖入' };
+      const filePath = desktopDemoDropTokens.get(request.id);
+      if (!filePath || !desktopDemoStates.has(request.state)) return { ok: false, error: '拖入的图片已失效，请重新拖入' };
       try {
-        const image = await demoStateImages.importFile(filePath, request.state);
-        demoDropTokens.delete(request.id);
-        return { ok: true, image, images: demoStateImages.getMappings() };
+        const image = await desktopDemoStateImages.importFile(filePath, request.state);
+        desktopDemoDropTokens.delete(request.id);
+        return { ok: true, image, images: desktopDemoStateImages.getMappings() };
       } catch (error) {
         return { ok: false, error: String(error?.message || error).slice(0, 200) };
       }
     });
-    ipcMain.handle('whale-demo-pick-state-image', async (event, state) => {
-      if (!isMainFrame(event) || !demoStates.has(state)) return { ok: false, error: '无效的人偶交互状态' };
+    ipcMain.handle('desktop-demo-pick-state-image', async (event, state) => {
+      if (!isMainFrame(event) || !desktopDemoStates.has(state)) return { ok: false, error: '无效的人偶交互状态' };
       try {
         const result = await dialog.showOpenDialog(window, {
           title: `设置“${({ default: '默认', dragging: '文件拖入时', received: '文件已接收', processing: '助手处理中', complete: '处理完成' })[state]}”人偶图片`,
@@ -851,17 +853,17 @@ if (!lock) {
           filters: [{ name: 'PNG、JPEG 或 WebP 图片', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
         });
         if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true };
-        const image = await demoStateImages.importFile(result.filePaths[0], state);
-        return { ok: true, image, images: demoStateImages.getMappings() };
+        const image = await desktopDemoStateImages.importFile(result.filePaths[0], state);
+        return { ok: true, image, images: desktopDemoStateImages.getMappings() };
       } catch (error) {
         return { ok: false, error: String(error?.message || error).slice(0, 200) };
       }
     });
-    ipcMain.handle('whale-demo-get-state-images', event => isMainFrame(event) ? demoStateImages.getMappings() : {});
-    ipcMain.handle('whale-demo-reset-state-image', async (event, state) => {
-      if (!isMainFrame(event) || !demoStates.has(state)) return { ok: false };
-      await demoStateImages.reset(state);
-      return { ok: true, images: demoStateImages.getMappings() };
+    ipcMain.handle('desktop-demo-get-state-images', event => isMainFrame(event) ? desktopDemoStateImages.getMappings() : {});
+    ipcMain.handle('desktop-demo-reset-state-image', async (event, state) => {
+      if (!isMainFrame(event) || !desktopDemoStates.has(state)) return { ok: false };
+      await desktopDemoStateImages.reset(state);
+      return { ok: true, images: desktopDemoStateImages.getMappings() };
     });
     ipcMain.on('whale-ready', event => {
       if (event.sender !== window?.webContents) return;
@@ -881,7 +883,7 @@ if (!lock) {
       sendCursor(true);
       writeInputRoutingDiagnostic();
       if (interactionTest && !interactionTestStarted) setTimeout(() => { runInteractionTest().catch(() => {}); }, 120);
-      if (demoSmokeTest && !demoSmokeTestStarted) setTimeout(() => { runDemoSmokeTest().catch(() => {}); }, 180);
+      if (desktopDemoSmokeTest && !desktopDemoSmokeTestStarted) setTimeout(() => { runDesktopDemoSmokeTest().catch(() => {}); }, 180);
     });
     ipcMain.on('whale-interactive', (event, enabled) => {
       if (event.sender !== window?.webContents || typeof enabled !== 'boolean') return;
@@ -931,7 +933,7 @@ if (!lock) {
     if (process.platform === 'darwin' && app.dock) app.dock.setIcon(icon);
     tray = new Tray(icon);
     if (process.platform === 'darwin' && typeof tray.setTemplateImage === 'function') tray.setTemplateImage(false);
-    tray.setToolTip('AI Balance Whale');
+    tray.setToolTip('desktop-demo');
     refreshTrayMenu();
     tray.on('double-click', toggle);
     globalShortcut.register(process.platform === 'darwin' ? 'Command+Option+W' : 'Control+Alt+W', toggle);

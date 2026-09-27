@@ -1,15 +1,12 @@
 name: 问题反馈 / Bug report
-description: 报告 api-balance-whale（Codex 桌面版小鲸鱼）的故障或异常行为
+description: 报告 desktop-demo 桌面人偶应用的故障或异常行为
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        感谢反馈！提交前请先确认：
-        1. 你装的是本分支 **For-Codex** 的 `api-balance-whale`（Codex 桌面插件），不是上游的 DSH 网页版 `dsh-whale-widget`；
-        2. 已按 `docs/INSTALL-AND-ROLLBACK-0.2.0.md` 完成安装与验证；
-        3. 已查看 `docs/VERIFICATION-0.2.0.md` 的"未验证 / 不承诺"一节，确认不是已知限制。
+        感谢反馈！请先确认问题能在当前 desktop-demo Release 中复现，并注明 macOS 或 Windows 版本。
 
         ⚠️ **请勿粘贴 API 密钥、`auth.json`、`config.toml` 原文或完整账本。** 需要贴日志时请先脱敏。
   - type: dropdown
@@ -17,8 +14,8 @@ body:
     attributes:
       label: 你装的是哪一个？
       options:
-        - Codex 桌面版 api-balance-whale（本分支，跟随 Codex 窗口）
-        - DSH 网页版 dsh-whale-widget（上游主分支）
+        - macOS desktop-demo（Apple Silicon）
+        - Windows desktop-demo（x64）
         - 不确定
     validations:
       required: true
@@ -41,9 +38,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: 插件版本
-      description: 取 `.codex-plugin/plugin.json` 的 version 字段
-      placeholder: 0.2.0+codex.20260917
+      label: desktop-demo 版本
+      description: Release 页面中显示的版本号
+      placeholder: 0.2.0-demo.1
     validations:
       required: true
   - type: textarea
@@ -85,7 +82,7 @@ body:
     id: environment
     attributes:
       label: 环境
-      placeholder: Windows 11 24H2 x64 / Codex 桌面版版本 / Node.js v24.21 / Electron 44.3.0
+      placeholder: Windows 11 x64 / macOS 14 Apple Silicon / desktop-demo 版本
     validations:
       required: true
   - type: checkboxes

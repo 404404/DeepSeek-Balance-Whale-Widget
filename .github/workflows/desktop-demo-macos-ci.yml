@@ -1,4 +1,4 @@
-name: macOS standalone CI
+name: desktop-demo macOS CI
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-ci-${{ github.workflow }}-${{ github.ref }}
+  group: desktop-demo-macos-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -45,12 +45,12 @@ jobs:
           VERSION: 0.2.0
         run: bash scripts/create-dmg.sh
       - name: Launch the packaged App
-        run: bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app'
+        run: bash scripts/smoke-mac-app.sh 'dist/desktop-demo.app'
       - name: Upload candidate artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ai-balance-whale-macos-ci-${{ github.sha }}-${{ github.run_attempt }}
+          name: desktop-demo-macos-ci-${{ github.sha }}-${{ github.run_attempt }}
           path: |
             dist/*.dmg
             dist/*.sha256

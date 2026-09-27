@@ -8,14 +8,15 @@ const command = process.argv[2] || 'open';
 try {
   let result;
   if (command === 'open') result = await launchDesktop();
-  else if (command === 'desktop' && process.platform === 'darwin') {
-    const electron = process.env.ELECTRON_BIN || path.join(ROOT, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+  else if (command === 'desktop') {
+    const electron = process.env.ELECTRON_BIN || (process.platform === 'darwin'
+      ? path.join(ROOT, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron')
+      : path.join(ROOT, 'node_modules', 'electron', 'dist', process.platform === 'win32' ? 'electron.exe' : 'electron'));
     if (!fs.existsSync(electron)) throw new Error('未找到 Electron；请先运行 npm install，或设置 ELECTRON_BIN');
-    const child = spawn(electron, [path.join(ROOT, 'desktop', 'main.cjs'), '--standalone'], { detached: true, stdio: 'ignore', env: { ...process.env, WHALE_DESKTOP_MODE: 'standalone' } });
+    const child = spawn(electron, [path.join(ROOT, 'desktop', 'desktop-demo-main.cjs')], { detached: true, stdio: 'ignore', env: { ...process.env, DESKTOP_DEMO_MODE: 'standalone' } });
     child.unref();
-    result = { ok: true, desktop: 'launched', mode: 'standalone' };
+    result = { ok: true, desktop: 'launched', product: 'desktop-demo', mode: 'standalone' };
   }
-  else if (command === 'desktop') result = await launchDesktop();
   else if (command === 'balance') result = await serviceRequest('/dsh-whale/balance.json' + (process.argv.includes('--refresh') ? '?refresh=1' : ''));
   else if (command === 'usage') result = await serviceRequest('/dsh-whale/usage-records.json');
   else if (command === 'status') result = await serviceRequest('/api/status');

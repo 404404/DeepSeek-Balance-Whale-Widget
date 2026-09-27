@@ -20,21 +20,21 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
     trustedClickAt = 0;
     return ipcRenderer.invoke('whale-open-external', value);
   },
-  pickDemoFiles: () => ipcRenderer.invoke('whale-demo-pick-files'),
-  inspectDroppedDemoFiles: files => {
+  pickDesktopDemoFiles: () => ipcRenderer.invoke('desktop-demo-pick-files'),
+  inspectDroppedDesktopDemoFiles: files => {
     if (!Array.isArray(files)) return Promise.resolve([]);
     const paths = files.slice(0, 20).map(file => {
       try { return webUtils.getPathForFile(file); } catch { return ''; }
     });
-    return ipcRenderer.invoke('whale-demo-inspect-dropped-files', paths);
+    return ipcRenderer.invoke('desktop-demo-inspect-dropped-files', paths);
   },
-  clearDroppedDemoFiles: ids => ipcRenderer.invoke('whale-demo-clear-dropped-files', Array.isArray(ids) ? ids.slice(0, 20) : []),
-  importDroppedDemoImage: (id, state) => ipcRenderer.invoke('whale-demo-import-dropped-image', { id, state }),
-  pickDemoStateImage: state => ipcRenderer.invoke('whale-demo-pick-state-image', state),
-  getDemoStateImages: () => ipcRenderer.invoke('whale-demo-get-state-images'),
-  resetDemoStateImage: state => ipcRenderer.invoke('whale-demo-reset-state-image', state),
-  testMode: process.argv.includes('--whale-render-test') || process.env.WHALE_DESKTOP_TEST === '1',
-  standalone: process.platform === 'darwin' || process.argv.includes('--standalone'),
+  clearDroppedDesktopDemoFiles: ids => ipcRenderer.invoke('desktop-demo-clear-dropped-files', Array.isArray(ids) ? ids.slice(0, 20) : []),
+  importDroppedDesktopDemoImage: (id, state) => ipcRenderer.invoke('desktop-demo-import-dropped-image', { id, state }),
+  pickDesktopDemoStateImage: state => ipcRenderer.invoke('desktop-demo-pick-state-image', state),
+  getDesktopDemoStateImages: () => ipcRenderer.invoke('desktop-demo-get-state-images'),
+  resetDesktopDemoStateImage: state => ipcRenderer.invoke('desktop-demo-reset-state-image', state),
+  testMode: process.argv.includes('--desktop-demo-render-test') || process.env.DESKTOP_DEMO_TEST === '1',
+  standalone: process.platform === 'darwin' || process.argv.includes('--standalone') || process.env.DESKTOP_DEMO_MODE === 'standalone',
   surface: (expanded, reason) => ipcRenderer.send('whale-surface', { expanded: !!expanded, reason: typeof reason === 'string' ? reason : '' }),
   layoutReady: size => ipcRenderer.send('whale-layout-ready', size && typeof size === 'object' ? { width: Number(size.width), height: Number(size.height) } : null),
   widgetSize: size => {

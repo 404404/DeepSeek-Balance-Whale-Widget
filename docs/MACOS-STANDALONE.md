@@ -2,10 +2,12 @@
 
 ## 架构
 
-`desktop/main.cjs` 是模式选择器：
+`desktop/main.cjs` 保留上游插件宿主的兼容模式选择：
 
 - macOS 或 `--standalone` → `desktop/standalone-main.cjs`；
 - 其他情况 → `desktop/follow-main.cjs`，保留上游 Windows Codex 跟随路径。
+
+发行包使用独立入口 `desktop/desktop-demo-main.cjs`，在 macOS 与 Windows 上都直接运行 `desktop/standalone-main.cjs`。Windows 发行版不会启动 Codex 跟随宿主。
 
 独立宿主继续把 `assets/whale-widget.js` 作为唯一人偶/气泡/编辑器实现，通过 Electron 私有 `whale://widget` scheme 访问 `runtime/dispatcher.mjs` 提供的本地资源和 API。没有第二套点击队列、渲染器或设置存储。
 
@@ -26,7 +28,7 @@
 
 调整缩放时仅在 DOM 尺寸实际变化后更新原生窗口；MutationObserver/动画帧不会再持续发送尺寸协商消息。人偶关闭气泡时保持窗口底部锚点，打开设置时暂时扩大原生窗口，关闭后恢复当前人偶尺寸。
 
-空白区域继续通过主进程根据屏幕命中区域调用 `setIgnoreMouseEvents(..., { forward: true })` 穿透；仅人偶、气泡、按钮和明确打开的编辑表面接收输入，不创建覆盖整个桌面的可点击层。菜单栏“恢复人偶位置”只恢复窗口位置/尺寸并重载渲染器，不触碰 API 配置、账本或用户素材。`--whale-interaction-test` 会把状态写入隔离数据目录，但只使用合成 Electron 输入；物理鼠标、透明窗口穿透、Spaces 和多显示器仍需 macOS 实机验收。
+空白区域继续通过主进程根据屏幕命中区域调用 `setIgnoreMouseEvents(..., { forward: true })` 穿透；仅人偶、气泡、按钮和明确打开的编辑表面接收输入，不创建覆盖整个桌面的可点击层。菜单栏“恢复人偶位置”只恢复窗口位置/尺寸并重载渲染器，不触碰 API 配置、账本或用户素材。`--desktop-demo-interaction-test` 会把状态写入隔离数据目录，但只使用合成 Electron 输入；物理鼠标、透明窗口穿透、Spaces 和多显示器仍需 macOS 实机验收。
 
 ## 生命周期
 
@@ -35,7 +37,7 @@
 默认数据目录：
 
 ```text
-~/Library/Application Support/DeepSeek-Balance-Whale-Widget/
+~/Library/Application Support/desktop-demo/
 ├── electron-profile/       # Electron 本地 profile
 ├── api-settings.json       # provider 设置，不含密钥
 ├── .dshw-size.json         # 角色/音效/尺寸等上游设置
@@ -48,7 +50,7 @@
 └── runtime.json / *.sock    # 本应用自己的本地 bridge
 ```
 
-`WHALE_HOME` 或 `--whale-data` 可用于开发和测试隔离。Unix socket 路径由数据目录 hash 派生；启动时只在确认旧 pid 已退出或 runtime 文件无效时清理同名残留，socket 写入后设为用户私有权限。使用 `--whale-render-test` 启动实际打包 App 时，会在隔离数据目录写入脱敏的 DOM/原生几何诊断，供 CI 检查人偶完整可见、图片已加载及无外层滚动。
+`DESKTOP_DEMO_HOME` 或 `--desktop-demo-data` 可用于开发和测试隔离。Unix socket 路径由数据目录 hash 派生；启动时只在确认旧 pid 已退出或 runtime 文件无效时清理同名残留，socket 写入后设为用户私有权限。使用 `--desktop-demo-render-test` 启动实际打包 App 时，会在隔离数据目录写入脱敏的 DOM/原生几何诊断，供 CI 检查人偶完整可见、图片已加载及无外层滚动。
 
 ## 打包体积
 

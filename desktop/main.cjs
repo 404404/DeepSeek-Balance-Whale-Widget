@@ -1,11 +1,10 @@
 'use strict';
 
-// Keep the mature Windows Codex-following host intact, but make the macOS
-// boundary explicit: the packaged Mac App never enters the host-tracking
-// lifecycle or its coordinate conversion path.
+// Keep the legacy Codex-following host available to the upstream plugin path.
+// desktop-demo package builds use desktop/desktop-demo-main.cjs directly.
 if (process.platform === 'darwin') {
   require('./standalone-main.cjs');
-} else if (process.argv.includes('--standalone') || process.env.WHALE_DESKTOP_MODE === 'standalone') {
+} else if (process.argv.includes('--standalone') || process.env.DESKTOP_DEMO_MODE === 'standalone') {
   require('./standalone-main.cjs');
 } else {
   require('./follow-main.cjs');

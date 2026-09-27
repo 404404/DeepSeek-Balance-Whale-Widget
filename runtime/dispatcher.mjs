@@ -93,7 +93,7 @@ export function createDispatcher({ dataDir = DATA_HOME, service = null, monitor 
       }
       if (url.pathname === '/api/show' && method === 'POST') { onShow(); return jsonResult(200, { ok: true, desktop: 'shown' }); }
       if (url.pathname === '/api/stop' && method === 'POST') { setTimeout(onStop, 100); return jsonResult(200, { ok: true }); }
-      const uiFiles = { '/': 'widget.html', '/widget.html': 'widget.html', '/client.js': 'client.js', '/ui.css': 'ui.css', '/render.js': 'render.js', '/input.js': 'input.js', '/alpha-worker.js': 'alpha-worker.js', '/money.js': 'money.js', '/media-guard.js': 'media-guard.js', '/turn-notice.js': 'turn-notice.js', '/demo.css': 'demo.css', '/demo-model.js': 'demo-model.js', '/demo.js': 'demo.js' };
+      const uiFiles = { '/': 'widget.html', '/widget.html': 'widget.html', '/client.js': 'client.js', '/ui.css': 'ui.css', '/render.js': 'render.js', '/input.js': 'input.js', '/alpha-worker.js': 'alpha-worker.js', '/money.js': 'money.js', '/media-guard.js': 'media-guard.js', '/turn-notice.js': 'turn-notice.js', '/desktop-demo.css': 'desktop-demo.css', '/desktop-demo-model.js': 'desktop-demo-model.js', '/desktop-demo.js': 'desktop-demo.js' };
       let file;
       if (Object.hasOwn(uiFiles, url.pathname)) file = path.join(ROOT, 'desktop', 'ui', uiFiles[url.pathname]);
       else if (url.pathname.startsWith('/assets/')) {
