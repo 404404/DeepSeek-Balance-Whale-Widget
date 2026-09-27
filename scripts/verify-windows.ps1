@@ -25,6 +25,7 @@ if (-not (Test-Path $Asar -PathType Leaf)) { throw "resources/app.asar is missin
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $AsarFiles = & npx.cmd --no-install asar list $Asar
 if ($LASTEXITCODE -ne 0) { throw 'Could not read resources/app.asar.' }
+$AsarText = ($AsarFiles -join "`n").Replace('\', '/')
 $Required = @(
   'desktop/desktop-demo-main.cjs', 'desktop/standalone-main.cjs', 'desktop/preload.cjs',
   'desktop/ui/widget.html', 'desktop/ui/desktop-demo.css', 'desktop/ui/desktop-demo-model.js',
@@ -33,9 +34,9 @@ $Required = @(
   'lib/desktop-demo-state-images.mjs', 'runtime/dispatcher.mjs'
 )
 foreach ($Path in $Required) {
-  if (-not ($AsarFiles -match [regex]::Escape($Path))) { throw "Packaged resource is missing: $Path" }
+  if (-not ($AsarText -match [regex]::Escape($Path))) { throw "Packaged resource is missing: $Path" }
 }
-if ($AsarFiles -match 'desktop/follow-main\.cjs') { throw 'The Windows standalone app must not package the legacy Codex-following host.' }
+if ($AsarText -match 'desktop/follow-main\.cjs') { throw 'The Windows standalone app must not package the legacy Codex-following host.' }
 $Archive = Get-ChildItem $Dist -Filter 'desktop-demo-*-windows-x64-*.zip' | Select-Object -First 1
 if (-not $Archive) { throw 'Windows portable ZIP is missing.' }
 $ChecksumPath = "$($Archive.FullName).sha256"
