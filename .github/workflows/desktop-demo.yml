@@ -345,7 +345,7 @@ jobs:
 
           SHA-256 files are provided beside both downloads.
           NOTES
-          gh release create "$TAG" \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --target "$SOURCE_SHA" \
             --title "desktop-demo $VERSION" \
             --prerelease \
@@ -354,7 +354,7 @@ jobs:
             "release-assets/macos/desktop-demo-$VERSION-macos-arm64-$SHORT_SHA.dmg.sha256" \
             "release-assets/windows/desktop-demo-$VERSION-windows-x64-$SHORT_SHA.zip" \
             "release-assets/windows/desktop-demo-$VERSION-windows-x64-$SHORT_SHA.zip.sha256"
-          RELEASE_URL="$(gh release view "$TAG" --json url --jq .url)"
+          RELEASE_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)"
           {
             echo '## desktop-demo release'
             echo "- Release: $RELEASE_URL"
