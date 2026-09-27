@@ -73,7 +73,7 @@ test('multiple attachments share stable records, deduplicate, remove individuall
   const second = file('b', '图片.png', { extension: 'png', type: 'PNG', isImage: true, imageSupported: true });
   assert.equal(model.addAttachments([first, second, first]), 2);
   model.removeAttachment('a');
-  assert.deepEqual(model.snapshot().attachments.map(value => value.id), ['b']);
+  assert.deepEqual(Array.from(model.snapshot().attachments, value => value.id), ['b']);
   model.setDraft('');
   assert.equal(model.send(), true, 'attachment-only message can be sent');
   clock.runNext();
@@ -81,11 +81,11 @@ test('multiple attachments share stable records, deduplicate, remove individuall
   model.drop([first, second]);
   const action = model.chooseDropAction('chat');
   assert.equal(action.ok, true);
-  assert.deepEqual(model.snapshot().attachments.map(value => value.id), ['a', 'b']);
+  assert.deepEqual(Array.from(model.snapshot().attachments, value => value.id), ['a', 'b']);
   assert.equal(model.snapshot().chatOpen, true);
   const cancelled = model.cancelDrop();
-  assert.deepEqual(cancelled, []);
-  assert.deepEqual(model.snapshot().attachments.map(value => value.id), ['a', 'b']);
+  assert.deepEqual(Array.from(cancelled), []);
+  assert.deepEqual(Array.from(model.snapshot().attachments, value => value.id), ['a', 'b']);
 });
 
 test('attachment list is capped at 20 across repeated imports and reports ignored files', () => {
@@ -150,7 +150,7 @@ test('state image mappings survive model restoration and broken images fall back
   const saved = model.snapshot().imageMappings;
   const restored = createDemoModel({ schedule: clock.schedule, cancel: clock.cancel });
   restored.setImageMappings(saved);
-  assert.deepEqual(restored.snapshot().imageMappings.received, mapping);
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.snapshot().imageMappings.received)), mapping);
   assert.equal(restored.imageLoadFailed('received', 'stale-id'), false);
   assert.equal(restored.imageLoadFailed('received', 'asset-123'), true);
   assert.equal(restored.snapshot().imageMappings.received, undefined);
