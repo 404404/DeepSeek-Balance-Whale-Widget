@@ -86,7 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          echo "artifact_name=desktop-demo-macos-app-$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=desktop-demo-macos-app-arm64-$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
           mkdir -p qa-output/desktop-demo-smoke
           {
             echo "product=desktop-demo"
@@ -104,6 +104,7 @@ jobs:
         env:
           VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
           BUILD_NUMBER: ${{ github.run_number }}
+          MAC_ARCH: arm64
         run: npm run build:mac
       - name: Verify App bundle and packaged resources
         env:
@@ -137,6 +138,93 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-demo-macos-evidence-${{ needs.desktop-demo-checks.outputs.version }}-${{ needs.desktop-demo-checks.outputs.short_sha }}
+          path: |
+            qa-output/mac-smoke/**
+            qa-output/desktop-demo-smoke/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  desktop-demo-macos-intel:
+    name: Build and smoke-test macOS x86_64 App
+    needs: desktop-demo-checks
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    outputs:
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+    steps:
+      - name: Check out the same immutable commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Record x86_64 build identity
+        id: identity
+        env:
+          VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
+          SHORT_SHA: ${{ needs.desktop-demo-checks.outputs.short_sha }}
+          SOURCE_SHA: ${{ needs.desktop-demo-checks.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          echo "artifact_name=desktop-demo-macos-app-x64-$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          mkdir -p qa-output/desktop-demo-smoke
+          {
+            echo "product=desktop-demo"
+            echo "baseline_sha=$DESKTOP_DEMO_BASELINE_SHA"
+            echo "source_sha=$SOURCE_SHA"
+            echo "version=$VERSION"
+            echo 'architecture=x64'
+            echo "actions_run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > qa-output/desktop-demo-build-info.txt
+      - name: Record runner architecture
+        run: |
+          uname -a
+          node -p 'JSON.stringify({node:process.version, arch:process.arch, platform:process.platform})'
+      - name: Build desktop-demo x86_64 App
+        env:
+          VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          MAC_ARCH: x64
+        run: npm run build:mac
+      - name: Verify x86_64 App bundle and packaged resources
+        env:
+          VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
+          MAC_ARCH: x64
+        run: npm run verify:mac
+      - name: Run packaged native interaction smoke
+        run: bash scripts/smoke-mac-app.sh 'dist/desktop-demo.app' qa-output/mac-smoke
+      - name: Run the packaged desktop-demo interaction smoke
+        env:
+          VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: bash scripts/smoke-desktop-demo.sh 'dist/desktop-demo.app' qa-output/desktop-demo-smoke
+      - name: Archive the exact verified App for the DMG job
+        run: |
+          set -euo pipefail
+          tar -czf qa-output/desktop-demo-app.tar.gz -C dist desktop-demo.app
+          shasum -a 256 qa-output/desktop-demo-app.tar.gz | awk '{print $1 "  desktop-demo-app.tar.gz"}' > qa-output/desktop-demo-app.tar.gz.sha256
+          printf 'app_sha256=%s\n' "$(awk '{print $1}' qa-output/desktop-demo-app.tar.gz.sha256)" >> qa-output/desktop-demo-build-info.txt
+      - name: Upload the verified App for the x86_64 DMG job
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: |
+            qa-output/desktop-demo-app.tar.gz
+            qa-output/desktop-demo-app.tar.gz.sha256
+            qa-output/desktop-demo-build-info.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload x86_64 smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-demo-macos-x64-evidence-${{ needs.desktop-demo-checks.outputs.version }}-${{ needs.desktop-demo-checks.outputs.short_sha }}
           path: |
             qa-output/mac-smoke/**
             qa-output/desktop-demo-smoke/**
@@ -203,7 +291,7 @@ jobs:
             echo "dmg_sha256=$(awk '{print $1}' "$OUTPUT.sha256")"
             echo "actions_run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           } > dist/desktop-demo-build-info.txt
-          echo "artifact_name=desktop-demo-dmg-$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=desktop-demo-dmg-arm64-$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
       - name: Publish DMG identity in the workflow summary
         env:
           VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
@@ -222,6 +310,81 @@ jobs:
           path: |
             dist/desktop-demo-${{ needs.desktop-demo-checks.outputs.version }}-macos-arm64-${{ needs.desktop-demo-checks.outputs.short_sha }}.dmg
             dist/desktop-demo-${{ needs.desktop-demo-checks.outputs.version }}-macos-arm64-${{ needs.desktop-demo-checks.outputs.short_sha }}.dmg.sha256
+            dist/desktop-demo-build-info.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop-demo-dmg-intel:
+    name: Build and validate desktop-demo x86_64 DMG
+    needs: [desktop-demo-checks, desktop-demo-macos-intel]
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    outputs:
+      artifact_name: ${{ steps.identity.outputs.artifact_name }}
+    steps:
+      - name: Check out the same immutable commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install the locked App verifier
+        run: npm ci --no-audit --no-fund
+      - name: Download the exact x86_64 App that passed packaged smoke
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.desktop-demo-macos-intel.outputs.artifact_name }}
+          path: qa-output/verified-app
+      - name: Verify transferred source, version, and checksum
+        env:
+          EXPECTED_SHA: ${{ needs.desktop-demo-checks.outputs.source_sha }}
+          VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SHA" ]]
+          grep -Fxq "source_sha=$EXPECTED_SHA" qa-output/verified-app/desktop-demo-build-info.txt
+          grep -Fxq "version=$VERSION" qa-output/verified-app/desktop-demo-build-info.txt
+          grep -Fxq 'architecture=x64' qa-output/verified-app/desktop-demo-build-info.txt
+          (cd qa-output/verified-app && shasum -a 256 -c desktop-demo-app.tar.gz.sha256)
+          mkdir -p dist
+          tar -xzf qa-output/verified-app/desktop-demo-app.tar.gz -C dist
+      - name: Re-verify the transferred x86_64 app
+        env:
+          VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
+          MAC_ARCH: x64
+        run: npm run verify:mac
+      - name: Create and mount-test the x86_64 DMG
+        id: identity
+        env:
+          VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
+          SHORT_SHA: ${{ needs.desktop-demo-checks.outputs.short_sha }}
+          MAC_ARCH: x64
+        run: |
+          set -euo pipefail
+          OUTPUT="dist/desktop-demo-$VERSION-macos-x64-$SHORT_SHA.dmg"
+          OUTPUT="$OUTPUT" bash scripts/create-dmg.sh dist/desktop-demo.app "$OUTPUT"
+          hdiutil verify "$OUTPUT"
+          shasum -a 256 "$OUTPUT" | awk -v name="$(basename "$OUTPUT")" '{print $1 "  " name}' > "$OUTPUT.sha256"
+          {
+            echo "product=desktop-demo"
+            echo "source_sha=$GITHUB_SHA"
+            echo "baseline_sha=$DESKTOP_DEMO_BASELINE_SHA"
+            echo "version=$VERSION"
+            echo 'architecture=x64'
+            echo "dmg_sha256=$(awk '{print $1}' "$OUTPUT.sha256")"
+            echo "actions_run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > dist/desktop-demo-build-info.txt
+          echo "artifact_name=desktop-demo-dmg-x64-$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+      - name: Upload the validated x86_64 DMG for release
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.identity.outputs.artifact_name }}
+          path: |
+            dist/desktop-demo-${{ needs.desktop-demo-checks.outputs.version }}-macos-x64-${{ needs.desktop-demo-checks.outputs.short_sha }}.dmg
+            dist/desktop-demo-${{ needs.desktop-demo-checks.outputs.version }}-macos-x64-${{ needs.desktop-demo-checks.outputs.short_sha }}.dmg.sha256
             dist/desktop-demo-build-info.txt
           if-no-files-found: error
           retention-days: 14
@@ -286,9 +449,9 @@ jobs:
           retention-days: 30
 
   desktop-demo-release:
-    name: Publish the macOS DMG and Windows portable EXE package
-    needs: [desktop-demo-checks, desktop-demo-dmg, desktop-demo-windows]
-    if: needs.desktop-demo-checks.result == 'success' && needs.desktop-demo-dmg.result == 'success' && needs.desktop-demo-windows.result == 'success'
+    name: Publish the macOS arm64 and x86_64 DMGs plus Windows EXE package
+    needs: [desktop-demo-checks, desktop-demo-dmg, desktop-demo-dmg-intel, desktop-demo-windows]
+    if: needs.desktop-demo-checks.result == 'success' && needs.desktop-demo-dmg.result == 'success' && needs.desktop-demo-dmg-intel.result == 'success' && needs.desktop-demo-windows.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -297,13 +460,18 @@ jobs:
       - name: Download the validated macOS DMG
         uses: actions/download-artifact@v4
         with:
-          name: desktop-demo-dmg-${{ needs.desktop-demo-checks.outputs.version }}-${{ needs.desktop-demo-checks.outputs.short_sha }}
+          name: ${{ needs.desktop-demo-dmg.outputs.artifact_name }}
           path: release-assets/macos
       - name: Download the validated Windows portable package
         uses: actions/download-artifact@v4
         with:
           name: ${{ needs.desktop-demo-windows.outputs.artifact_name }}
           path: release-assets/windows
+      - name: Download the validated macOS x86_64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.desktop-demo-dmg-intel.outputs.artifact_name }}
+          path: release-assets/macos-x64
       - name: Verify assets have the same immutable source and version
         env:
           VERSION: ${{ needs.desktop-demo-checks.outputs.version }}
@@ -312,14 +480,19 @@ jobs:
         run: |
           set -euo pipefail
           DMG="desktop-demo-$VERSION-macos-arm64-$SHORT_SHA.dmg"
+          INTEL_DMG="desktop-demo-$VERSION-macos-x64-$SHORT_SHA.dmg"
           ZIP="desktop-demo-$VERSION-windows-x64-$SHORT_SHA.zip"
           grep -Fxq "source_sha=$SOURCE_SHA" release-assets/macos/desktop-demo-build-info.txt
           grep -Fxq "version=$VERSION" release-assets/macos/desktop-demo-build-info.txt
           grep -Fxq 'architecture=arm64' release-assets/macos/desktop-demo-build-info.txt
+          grep -Fxq "source_sha=$SOURCE_SHA" release-assets/macos-x64/desktop-demo-build-info.txt
+          grep -Fxq "version=$VERSION" release-assets/macos-x64/desktop-demo-build-info.txt
+          grep -Fxq 'architecture=x64' release-assets/macos-x64/desktop-demo-build-info.txt
           grep -Fxq "source_sha=$SOURCE_SHA" release-assets/windows/desktop-demo-build-info.txt
           grep -Fxq "version=$VERSION" release-assets/windows/desktop-demo-build-info.txt
           grep -Fxq 'architecture=x64' release-assets/windows/desktop-demo-build-info.txt
           (cd release-assets/macos && sha256sum --check "$DMG.sha256")
+          (cd release-assets/macos-x64 && sha256sum --check "$INTEL_DMG.sha256")
           (cd release-assets/windows && sha256sum --check "$ZIP.sha256")
       - name: Publish desktop-demo prerelease
         env:
@@ -340,10 +513,11 @@ jobs:
           Source commit: $SOURCE_SHA
 
           - macOS Apple Silicon: ad-hoc signed DMG; not notarized.
+          - macOS Intel x86_64: ad-hoc signed DMG; not notarized.
           - Windows x64: portable ZIP containing desktop-demo.exe and its Electron runtime; extract the folder and run desktop-demo.exe. The Windows executable is unsigned.
-          - Both packages passed their platform's packaged application smoke checks.
+          - All three packages passed their platform and architecture's packaged application smoke checks.
 
-          SHA-256 files are provided beside both downloads.
+          SHA-256 files are provided beside all three downloads.
           NOTES
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --target "$SOURCE_SHA" \
@@ -352,6 +526,8 @@ jobs:
             --notes-file "$RUNNER_TEMP/desktop-demo-release-notes.md" \
             "release-assets/macos/desktop-demo-$VERSION-macos-arm64-$SHORT_SHA.dmg" \
             "release-assets/macos/desktop-demo-$VERSION-macos-arm64-$SHORT_SHA.dmg.sha256" \
+            "release-assets/macos-x64/desktop-demo-$VERSION-macos-x64-$SHORT_SHA.dmg" \
+            "release-assets/macos-x64/desktop-demo-$VERSION-macos-x64-$SHORT_SHA.dmg.sha256" \
             "release-assets/windows/desktop-demo-$VERSION-windows-x64-$SHORT_SHA.zip" \
             "release-assets/windows/desktop-demo-$VERSION-windows-x64-$SHORT_SHA.zip.sha256"
           RELEASE_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)"
@@ -359,6 +535,7 @@ jobs:
             echo '## desktop-demo release'
             echo "- Release: $RELEASE_URL"
             echo "- Source SHA: $SOURCE_SHA"
-            echo "- macOS asset: desktop-demo-$VERSION-macos-arm64-$SHORT_SHA.dmg"
+            echo "- macOS arm64 asset: desktop-demo-$VERSION-macos-arm64-$SHORT_SHA.dmg"
+            echo "- macOS x86_64 asset: desktop-demo-$VERSION-macos-x64-$SHORT_SHA.dmg"
             echo "- Windows asset: desktop-demo-$VERSION-windows-x64-$SHORT_SHA.zip"
           } >> "$GITHUB_STEP_SUMMARY"

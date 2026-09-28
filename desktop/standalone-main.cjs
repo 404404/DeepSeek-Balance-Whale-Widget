@@ -15,6 +15,7 @@ if (process.platform === 'win32') app.setAppUserModelId('com.404404.desktopdemo'
 const MIN_WIDGET_SIZE = 122;
 const DEFAULT_WIDGET_SIZE = 375;
 const MAX_WIDGET_SIZE = 625;
+const WINDOWS_HIT_TEST_EXIT_MARGIN = 12;
 const args = process.argv.slice(1);
 const fixture = process.env.DESKTOP_DEMO_TEST === '1';
 const layoutTest = fixture || process.argv.includes('--desktop-demo-render-test');
@@ -210,7 +211,12 @@ function cursorInsideHitRegion() {
   try {
     const bounds = window.getContentBounds();
     const cursor = screen.getCursorScreenPoint();
-    return cursorInRegions(cursor, bounds, hitRegions);
+    // Keep Windows input enabled briefly outside the reported DOM rectangle.
+    // Electron's transparent-window forwarding crosses native and Chromium
+    // coordinate paths; this exit hysteresis prevents pixel rounding at the
+    // edge from rapidly switching the window between pass-through and input.
+    const margin = process.platform === 'win32' && inputEnabled ? WINDOWS_HIT_TEST_EXIT_MARGIN : 0;
+    return cursorInRegions(cursor, bounds, hitRegions, margin);
   } catch { return false; }
 }
 function updateNativeInputRouting() {
@@ -376,6 +382,18 @@ async function runDesktopDemoSmokeTest() {
     if (!await waitForInteractionReady()) throw new Error('standalone renderer did not become ready');
     const available = await interactionRendererEval('!!window.__desktopDemoSmoke');
     record('demo-controller-loaded-in-packaged-renderer', available === true);
+
+    await interactionRendererEval('window.__desktopDemoSmoke.setHover(true); true');
+    await interactionDelay(100);
+    const hoverControls = await interactionRendererEval(`(() => { const root=document.querySelector('.desktop-demo-controls'); const buttons=[...root.querySelectorAll('.desktop-demo-button')].map(button=>{const r=button.getBoundingClientRect();return {visible:button.classList.contains('is-visible'),left:r.left,top:r.top,width:r.width,height:r.height};}); return {open:root.open,buttons}; })()`);
+    const controlsStacked = hoverControls?.open === true && hoverControls.buttons?.length === 2 && hoverControls.buttons.every(button => button.visible && button.width >= 24 && button.height >= 24) && Math.abs(hoverControls.buttons[0].left - hoverControls.buttons[1].left) <= 1 && hoverControls.buttons[1].top - hoverControls.buttons[0].top >= 29;
+    record('hover-controls-stack-vertically', controlsStacked, hoverControls);
+    await interactionRendererEval('document.querySelector("#settings-dialog").showModal(); true');
+    await interactionDelay(120);
+    const settingsControls = await interactionRendererEval(`(() => { const dialog=document.querySelector('#settings-dialog'); const root=document.querySelector('.desktop-demo-controls'); return {settingsOpen:dialog.open,controlsOpen:root.open,buttons:[...root.querySelectorAll('.desktop-demo-button')].map(button=>button.classList.contains('is-visible'))}; })()`);
+    record('settings-dialog-hides-hover-controls', settingsControls?.settingsOpen === true && settingsControls.controlsOpen === false && settingsControls.buttons.every(visible => visible === false), settingsControls);
+    await interactionRendererEval('document.querySelector("#settings-dialog").close(); window.__desktopDemoSmoke.setHover(false); true');
+    await interactionDelay(220);
 
     await interactionRendererEval(`(async () => { const api=window.__desktopDemoSmoke; api.setHover(true); api.openChat(); await new Promise(resolve=>setTimeout(resolve,120)); const buttons=[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
     await interactionDelay(220);
@@ -614,6 +632,11 @@ function setWidgetSize(size) {
   visibility();
 }
 function cursorScreenPoint(fallback) {
+  // PointerEvent screen coordinates and Electron window bounds are both
+  // logical screen pixels on Windows. Prefer the event's coordinate so a
+  // native cursor sample from a different DPI transition cannot make a drag
+  // jump and then appear to snap back.
+  if (process.platform === 'win32' && Number.isFinite(fallback?.x) && Number.isFinite(fallback?.y)) return fallback;
   try {
     const point = screen.getCursorScreenPoint();
     if (Number.isFinite(point?.x) && Number.isFinite(point?.y)) return point;

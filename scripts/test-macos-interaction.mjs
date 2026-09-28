@@ -32,6 +32,8 @@ assert.deepEqual(model.nativeDragMovement({ x: 100, y: 200 }, { x: 101, y: 201 }
 let cursor = { x: 1150, y: 830 };
 assert.equal(model.cursorInRegions(cursor, { x: 1000, y: 500 }, [{ left: 100, top: 300, width: 200, height: 200 }]), true);
 assert.equal(model.cursorInRegions({ x: 1001, y: 501 }, { x: 1000, y: 500 }, [{ left: 100, top: 300, width: 200, height: 200 }]), false);
+assert.equal(model.cursorInRegions({ x: 1093, y: 801 }, { x: 1000, y: 500 }, [{ left: 100, top: 300, width: 200, height: 200 }], 12), true);
+assert.equal(model.cursorInRegions({ x: 1087, y: 801 }, { x: 1000, y: 500 }, [{ left: 100, top: 300, width: 200, height: 200 }], 12), false);
 assert.equal(model.expandedSurfaceFromState({ menuButtonVisible: true }), false);
 assert.equal(model.expandedSurfaceFromState({ menuOpen: true }), true);
 let point = { x: 0, y: 0 };

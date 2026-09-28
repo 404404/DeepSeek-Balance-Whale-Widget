@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-$ROOT/dist/desktop-demo.app}"
 VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}"
-OUTPUT="${2:-$ROOT/dist/desktop-demo-${VERSION}-macos-arm64.dmg}"
+MAC_ARCH="${MAC_ARCH:-arm64}"
+OUTPUT="${2:-$ROOT/dist/desktop-demo-${VERSION}-macos-${MAC_ARCH}.dmg}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/desktop-demo-dmg.XXXXXX")"
 MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/desktop-demo-mount.XXXXXX")"

@@ -3,6 +3,7 @@
   const bridge = window.whaleDesktop;
   const modelApi = window.DesktopDemoModel;
   if (!bridge || !modelApi) return;
+  const settingsDialog = document.querySelector('#settings-dialog');
 
   const { STATES, STATE_LABELS, MODELS, createDesktopDemoModel } = modelApi;
   const state = { imageSettingsOpen: false, imageSettingsState: 'received', returnToChat: false, notice: '', noticeTimer: 0 };
@@ -105,8 +106,8 @@
   function placeControls() {
     if (!controls.open || !menuButton) return;
     const rect = menuButton.getBoundingClientRect();
-    controls.style.left = `${Math.round(clamp(rect.left - 60, 4, Math.max(4, window.innerWidth - 60)))}px`;
-    controls.style.top = `${Math.round(clamp(rect.top, 4, Math.max(4, window.innerHeight - 30)))}px`;
+    controls.style.left = `${Math.round(clamp(rect.left - 30, 4, Math.max(4, window.innerWidth - 30)))}px`;
+    controls.style.top = `${Math.round(clamp(rect.top, 4, Math.max(4, window.innerHeight - 56)))}px`;
   }
   function setOpen(element, open) {
     if (open) dialogOpen(element);
@@ -338,8 +339,9 @@
     if (root) root.classList.toggle('desktop-demo-drag-active', snapshot.dragOver);
     syncAvatar(snapshot);
     const hovering = !!menuButton?.classList.contains('dshwv-menu-btn-visible');
-    const chatVisible = hovering || snapshot.chatOpen;
-    const imagesVisible = hovering || state.imageSettingsOpen;
+    const settingsVisible = !!settingsDialog?.open;
+    const chatVisible = !settingsVisible && (hovering || snapshot.chatOpen);
+    const imagesVisible = !settingsVisible && (hovering || state.imageSettingsOpen);
     controls.querySelector('[data-desktop-demo-control="chat"]').classList.toggle('is-visible', chatVisible);
     controls.querySelector('[data-desktop-demo-control="images"]').classList.toggle('is-visible', imagesVisible);
     const controlsNeeded = chatVisible || imagesVisible;
@@ -524,6 +526,7 @@
     new MutationObserver(() => render(model.snapshot())).observe(menuButton, { attributes: true, attributeFilter: ['class', 'style'] });
     menuButton.addEventListener('click', () => render(model.snapshot()));
   }
+  if (settingsDialog) new MutationObserver(() => render(model.snapshot())).observe(settingsDialog, { attributes: true, attributeFilter: ['open'] });
   window.addEventListener('resize', () => render(model.snapshot()));
   window.addEventListener('whale-native-root-offset', () => render(model.snapshot()));
   window.addEventListener('blur', () => {

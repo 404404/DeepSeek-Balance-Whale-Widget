@@ -44,14 +44,15 @@ function nativeDragMovement(start, current, moved = false, threshold = 3) {
   return { dx, dy, moved: nextMoved, shouldMove: nextMoved };
 }
 
-function cursorInRegions(cursor, contentBounds, regions) {
+function cursorInRegions(cursor, contentBounds, regions, margin = 0) {
   if (!cursor || !contentBounds || !Array.isArray(regions)) return false;
   if (![cursor.x, cursor.y, contentBounds.x, contentBounds.y].every(finite)) return false;
+  const padding = Math.max(0, finite(margin) ? Number(margin) : 0);
   return regions.some(region => region &&
-    cursor.x >= contentBounds.x + Number(region.left) &&
-    cursor.x <= contentBounds.x + Number(region.left) + Number(region.width) &&
-    cursor.y >= contentBounds.y + Number(region.top) &&
-    cursor.y <= contentBounds.y + Number(region.top) + Number(region.height));
+    cursor.x >= contentBounds.x + Number(region.left) - padding &&
+    cursor.x <= contentBounds.x + Number(region.left) + Number(region.width) + padding &&
+    cursor.y >= contentBounds.y + Number(region.top) - padding &&
+    cursor.y <= contentBounds.y + Number(region.top) + Number(region.height) + padding);
 }
 
 function expandedSurfaceFromState(state = {}) {

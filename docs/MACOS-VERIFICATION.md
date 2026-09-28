@@ -15,7 +15,7 @@ bash scripts/smoke-mac-app.sh
 
 ## 人工验收
 
-在真实 macOS 14+ Apple Silicon 上：
+在真实 macOS 14+ Apple Silicon 上；Intel Mac 的 x86_64 包也应使用对应版本复核：
 
 1. 从 DMG 将 App 拖入 Applications 并双击；
 2. 确认没有 Codex/Node 时仍出现内置角色；
@@ -31,7 +31,7 @@ bash scripts/smoke-mac-app.sh
 
 ## CI 门禁
 
-`macOS standalone CI` 使用 `macos-14`、Node 24 和 arm64 Electron，执行 JS 语法检查、几何/拖动阈值逻辑测试、App bundle 资源/版本/arm64/codesign 检查、DMG 只读挂载检查和实际打包 App smoke。smoke 产物同时保存启动、DOM 几何、命中区域、输入路由和交互步骤证据；其中合成输入与 OS 层鼠标穿透分别报告。Release workflow 对同一次 checkout 重复这些检查，然后才创建 Release。CI 没有真实密钥，也不会读取维护者本机凭据。
+`desktop-demo CI and Release` 使用 Apple Silicon 与 Intel macOS runners、Node 24 和对应架构的 Electron，执行 JS 语法检查、几何/拖动阈值逻辑测试、App bundle 资源/版本/架构/codesign 检查、DMG 只读挂载检查和实际打包 App smoke。smoke 产物同时保存启动、DOM 几何、命中区域、输入路由和交互步骤证据；其中合成输入与 OS 层鼠标穿透分别报告。Windows x64 包也在 Windows runner 构建和启动检查。CI 没有真实密钥，也不会读取维护者本机凭据。
 
 ### 未能在当前环境完成的项目
 

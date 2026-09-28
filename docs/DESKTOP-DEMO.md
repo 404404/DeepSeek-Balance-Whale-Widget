@@ -4,7 +4,7 @@
 
 ## 启动
 
-- macOS：下载 Apple Silicon DMG，把 `desktop-demo.app` 拖到“应用程序”并启动。未公证的 ad-hoc 签名构建如果被拦截，可在 Finder 中右键 App 并选“打开”。
+- macOS：Apple Silicon 下载 arm64 DMG；Intel Mac 下载 x86_64 DMG。把 `desktop-demo.app` 拖到“应用程序”并启动。未公证的 ad-hoc 签名构建如果被拦截，可在 Finder 中右键 App 并选“打开”。
 - Windows：下载 x64 portable ZIP 并解压整个目录，然后运行 `desktop-demo-win32-x64/desktop-demo.exe`。请保留旁边的 `resources` 等运行时文件；单独复制 EXE 无法启动。该构建未签名。
 
 ## 一分钟演示
@@ -25,4 +25,4 @@
 
 ## 自动化证据与实机验收
 
-专用 CI 会启动实际打包的 macOS arm64 与 Windows x64 应用，在隔离数据目录中合成输入，检查聊天、附件、文件分流、任务状态、状态图片和窗口输入区域，并保存截图及诊断日志。自动化合成输入不代表真实 Finder/Explorer 拖放、中文输入法或物理鼠标穿透已通过实机验收；这些项目仍需在对应系统上人工复核。
+专用 CI 会启动实际打包的 macOS arm64、macOS x86_64 与 Windows x64 应用，在隔离数据目录中合成输入，检查聊天、附件、文件分流、任务状态、状态图片、快捷图标排列、设置页层级和窗口输入区域，并保存截图及诊断日志。自动化合成输入不代表真实 Finder/Explorer 拖放、中文输入法或物理鼠标穿透已通过实机验收；这些项目仍需在对应系统上人工复核。

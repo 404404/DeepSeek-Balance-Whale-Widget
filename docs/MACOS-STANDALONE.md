@@ -54,7 +54,7 @@
 
 ## 打包体积
 
-Electron 的 arm64 Chromium 运行时是 DMG 体积的主要部分，不能在不改变桌面运行时的情况下大幅删减。打包脚本会排除仅用于开发/Windows/文档的文件和 README 展示图 `assets/DSH2.png`，但保留人偶、气泡图片、音效、编辑器脚本和运行时依赖；构建日志会同时报告 `.app` 与 `app.asar` 大小。用户素材仍写入 Application Support，不会被打包进 App。
+Electron 的平台 Chromium 运行时是 DMG 体积的主要部分，不能在不改变桌面运行时的情况下大幅删减。打包脚本会排除仅用于开发/Windows/文档的文件和 README 展示图 `assets/DSH2.png`，但保留人偶、气泡图片、音效、编辑器脚本和运行时依赖；构建日志会同时报告 `.app` 与 `app.asar` 大小。用户素材仍写入 Application Support，不会被打包进 App。
 
 ## 当前边界
 

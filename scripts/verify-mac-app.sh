@@ -4,11 +4,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-$ROOT/dist/desktop-demo.app}"
 EXPECTED_VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}"
+MAC_ARCH="${MAC_ARCH:-arm64}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
 [[ -f "$APP/Contents/Resources/app.asar" ]] || { echo "app.asar missing" >&2; exit 1; }
 BINARY="$APP/Contents/MacOS/desktop-demo"
 [[ -x "$BINARY" ]] || { echo "main executable missing" >&2; exit 1; }
-file "$BINARY" | grep -Eqi 'arm64|universal' || { echo "main executable is not arm64: $(file "$BINARY")" >&2; exit 1; }
+case "$MAC_ARCH" in
+  arm64) ARCH_PATTERN='arm64|universal' ;;
+  x64) ARCH_PATTERN='x86_64|universal' ;;
+  *) echo "unsupported macOS architecture: $MAC_ARCH" >&2; exit 1 ;;
+esac
+file "$BINARY" | grep -Eqi "$ARCH_PATTERN" || { echo "main executable does not match $MAC_ARCH: $(file "$BINARY")" >&2; exit 1; }
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 [[ "$PLIST_VERSION" == "$EXPECTED_VERSION" ]] || { echo "version mismatch: $PLIST_VERSION != $EXPECTED_VERSION" >&2; exit 1; }
 ASAR_LIST="$(npx --no-install asar list "$APP/Contents/Resources/app.asar")"
@@ -20,4 +26,4 @@ if grep -Fq 'desktop/follow-main.cjs' <<<"$ASAR_LIST"; then
   exit 1
 fi
 codesign --verify --deep --strict --verbose=2 "$APP"
-printf 'verified App=%s version=%s arch=arm64\n' "$APP" "$PLIST_VERSION"
+printf 'verified App=%s version=%s arch=%s\n' "$APP" "$PLIST_VERSION" "$MAC_ARCH"

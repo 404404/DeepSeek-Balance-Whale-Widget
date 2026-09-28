@@ -8,7 +8,7 @@
 
 [打开 desktop-demo Releases](https://github.com/404404/DeepSeek-Balance-Whale-Widget/releases) 获取最新版本：
 
-- macOS 14+ Apple Silicon：下载 `desktop-demo-…-macos-arm64-….dmg`，将 `desktop-demo.app` 拖进“应用程序”。构建使用 ad-hoc 签名，未经 Apple 公证；首次打开时请在 Finder 中右键 App 并选择“打开”。
+- macOS 14+ Apple Silicon：下载 `desktop-demo-…-macos-arm64-….dmg`；Intel Mac：下载 `desktop-demo-…-macos-x64-….dmg`。将 `desktop-demo.app` 拖进“应用程序”。两个构建均使用 ad-hoc 签名，未经 Apple 公证；首次打开时请在 Finder 中右键 App 并选择“打开”。
 - Windows x64：下载 `desktop-demo-…-windows-x64-….zip`，解压后运行 `desktop-demo-win32-x64/desktop-demo.exe`。这是便携应用目录，EXE 需要同目录 Electron 运行时文件；Windows 构建未签名。
 
 两个平台的 Release 都附带 SHA-256 校验文件。
@@ -45,7 +45,7 @@ npm run build:windows
 npm run verify:windows
 ```
 
-macOS 包为 arm64 `.app` 与 DMG；Windows 包为 x64 Electron 便携目录 ZIP，入口是 `desktop-demo.exe`。GitHub Actions 会分别在 macOS 与 Windows runner 上构建、启动和验证应用，并只在两边都通过后创建同一个 `desktop-demo` prerelease。
+macOS 包为 arm64 与 x86_64 `.app`/DMG；Windows 包为 x64 Electron 便携目录 ZIP，入口是 `desktop-demo.exe`。GitHub Actions 会分别在 Apple Silicon、Intel macOS 与 Windows runner 上构建、启动和验证应用，并只在所有目标都通过后创建同一个 `desktop-demo` prerelease。
 
 ## 数据与安全
 

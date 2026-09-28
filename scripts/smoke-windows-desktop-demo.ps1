@@ -41,7 +41,8 @@ try {
     if ($Evidence.$Key -ne $false) { throw "Smoke evidence incorrectly claims physical OS validation for $Key." }
   }
   $Expected = @(
-    'demo-controller-loaded-in-packaged-renderer', 'message-button-and-chat-panel-geometry',
+    'demo-controller-loaded-in-packaged-renderer', 'hover-controls-stack-vertically',
+    'settings-dialog-hides-hover-controls', 'message-button-and-chat-panel-geometry',
     'ime-composition-and-shift-enter-do-not-submit', 'selected-model-and-local-chat-reply',
     'multiple-attachments-render-with-type-and-size', 'attachment-only-chat-message',
     'file-drop-opens-choice-surface', 'send-to-chat-queues-file-without-auto-send',

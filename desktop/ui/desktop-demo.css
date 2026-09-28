@@ -1,8 +1,8 @@
 .desktop-demo-controls {
   position: fixed;
   margin: 0;
-  width: 56px;
-  height: 26px;
+  width: 26px;
+  height: 56px;
   max-width: none;
   max-height: none;
   padding: 0;
@@ -18,6 +18,7 @@
 .desktop-demo-controls::backdrop { background: transparent; }
 .desktop-demo-controls button {
   position: absolute;
+  left: 0;
   top: 0;
   width: 26px;
   height: 26px;
@@ -38,8 +39,8 @@
 .desktop-demo-controls button:hover,
 .desktop-demo-controls button:focus-visible { background: #203170; outline: 2px solid rgba(255,255,255,.9); outline-offset: 1px; }
 .desktop-demo-controls button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.desktop-demo-controls [data-desktop-demo-control="chat"] { right: 30px; }
-.desktop-demo-controls [data-desktop-demo-control="images"] { right: 0; }
+.desktop-demo-controls [data-desktop-demo-control="chat"] { top: 0; }
+.desktop-demo-controls [data-desktop-demo-control="images"] { top: 30px; }
 .desktop-demo-controls button.is-visible { opacity: 1; visibility: visible; pointer-events: auto; }
 
 .desktop-demo-panel {
