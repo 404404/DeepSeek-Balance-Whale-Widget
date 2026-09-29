@@ -1,25 +1,27 @@
-# AI Balance Whale · macOS 独立桌面挂件
+# AI Balance Whale · Windows 与 macOS 独立桌面挂件
 
-AI Balance Whale 是一只常驻 macOS 桌面的透明小鲸鱼挂件，保留上游 `For-Codex` Electron 版本的角色、气泡、连续点击、拖动吸附、翻转、音效、菜单、素材管理和余额编辑器。本分支面向 Apple Silicon macOS，应用可以独立启动，不需要 Codex、DSH、Node.js 或浏览器才能看见和操作人偶。
+AI Balance Whale 是一只常驻桌面的透明小鲸鱼挂件，沿用上游 `For-Codex` Electron 版本的角色、气泡、连续点击、拖动吸附、翻转、音效、菜单、素材管理和余额编辑器。桌面 App 可独立启动，不需要 Codex、DSH、Node.js 或浏览器才能看见和操作人偶。
 
 本分支基于上游 `MeteorNOX/DeepSeek-Balance-Whale-Widget` 的 `For-Codex` 基线 `8c13a627120a175f6c92b3aeb12c99d392416ac7`。仓库归属与发布链接使用本 fork：<https://github.com/404404/DeepSeek-Balance-Whale-Widget>。
 
-## 当前阶段
+## 桌面版能力
 
-第一阶段只做 Electron/macOS 独立桌面适配：
+- 新增“快速聊天”按钮，显示在设置按钮上方；可选择 ChatGPT、Grok、DeepSeek 或自定义 HTTPS 网址，在系统默认浏览器打开。此设置与账户额度、API provider 和 Auth 登录无关。
+- 从 Finder 或 Windows 文件资源管理器把普通本地文件拖到人偶上，会打开操作系统的分享界面。应用只验证文件路径并交给系统；不读取文件正文、不上传、不移动原文件，也不声称分享已送达。暂不接受文件夹和虚拟附件。
+- 独立桌面版覆盖 Windows x64、Windows ARM64、macOS Intel x64 和 macOS Apple Silicon ARM64；Windows 普通安装版独立启动，开发模式保留 Codex-follow 脚本入口。
+- macOS App 兼容下限为 macOS 11（由当前 Electron 36 runtime 决定）；Windows Share UI 需要受支持的 Windows 桌面环境。
 
-- DMG 安装后双击即可启动小鲸鱼；
-- 人偶、气泡、连续点击、拖动、缩放、吸附、翻转、右键/菜单栏入口和上游弹窗编辑器继续由 `assets/whale-widget.js` 驱动；
-- 余额功能保留上游 API 余额模式：账单接口、New API/One API、自定义 JSON、DeepSeek 等适配；没有配置时显示未知或不可查询，不伪造余额；
-- 数据保存在 `~/Library/Application Support/DeepSeek-Balance-Whale-Widget`，不会写入 App Bundle 或 DMG；
-- macOS 窗口位置和缩放由 Electron 原生层维护：窗口状态只恢复位置，尺寸按当前缩放计算，屏幕拖动使用系统真实屏幕坐标；旧版小窗口会自动迁移；
-- 本阶段不实现 ChatGPT/Codex 订阅 Auth，也不跟随 Codex 窗口。它们是后续独立阶段，不能阻止人偶启动。
+角色和编辑器仍使用仓库里的上游 `assets/whale-widget.js` 与原有配置，不用 demo 对话页面替换。聊天按钮的相对位置、按钮命中和显隐参考 fork 的 `demo/macdesktop-quick-chat`（`b8a5510`），但真实产品按钮通过正式设置及受控原生桥接打开外部网站，不带入 demo overlay。
+
+余额功能保留上游 API 余额模式：账单接口、New API/One API、自定义 JSON、DeepSeek 等适配；没有配置时显示未知或不可查询，不伪造余额。此改动不调整现有 Codex/其他订阅 Auth。
+
+桌面位置和缩放由 Electron 原生层维护，人偶布局框底部中心是稳定锚点；按钮 hover 不触发展开窗口。应用数据放在各系统的用户数据目录中，不写入 App Bundle 或安装目录。
 
 ## 安装
 
-从 GitHub Releases 下载 Apple Silicon DMG，将 `AI Balance Whale.app` 拖到 `Applications` 后双击。当前构建为 ad-hoc 签名，未经过 Apple Developer ID 公证；首次打开若被 macOS 拦截，请在 Finder 中右键 App 选择“打开”，不要全局关闭 Gatekeeper。
+从 [GitHub Releases](https://github.com/404404/DeepSeek-Balance-Whale-Widget/releases) 下载与你的系统和处理器架构匹配的 Windows 安装包／便携 ZIP，或 macOS Intel／Apple Silicon DMG。DMG 将 App 拖到 `Applications` 后启动。当前 macOS 包为 ad-hoc 签名、未经 Apple Developer ID 签名和公证；首次打开若被系统拦截，可按 Apple 的“打开被阻止的 App”流程从“隐私与安全性”中确认，不要关闭 Gatekeeper。Windows 安装包目前未做 Authenticode 签名。
 
-支持 macOS 14+、Apple Silicon arm64。DMG 内同时包含 `Applications` 快捷方式。
+DMG 内含 `Applications` 快捷方式；Windows 安装包按当前用户安装，不要求管理员权限。
 
 ## 使用
 
@@ -28,6 +30,8 @@ AI Balance Whale 是一只常驻 macOS 桌面的透明小鲸鱼挂件，保留�
 - 左键点击：按当前上游点击队列显示/推进气泡；
 - 按住并拖动：移动原生窗口，松开后保存位置；
 - 人偶菜单按钮或右键：打开上游菜单和编辑器；
+- 人偶上方聊天图标：打开设置页选定的聊天网站；
+- 从系统文件管理器拖文件到角色身体：打开原生分享界面，发送目标由用户选择；
 - 菜单栏图标：显示/隐藏、打开设置、恢复人偶位置、退出；
 - 缩放、角色、音效、气泡内容、资源和账本继续使用上游设置与数据结构。
 
@@ -35,7 +39,7 @@ AI Balance Whale 是一只常驻 macOS 桌面的透明小鲸鱼挂件，保留�
 
 ## 本地开发
 
-需要 Node.js 24+ 仅用于开发和打包，安装后的 App 自带 Electron 运行时：
+Node.js 24 仅用于开发和打包，安装后的 App 自带 Electron 运行时：
 
 ```bash
 npm install
@@ -43,31 +47,41 @@ npm test
 npm run desktop
 ```
 
-`npm run desktop` 在 macOS 上启动独立模式；Windows 仍进入上游保留的跟随模式。开发模式的数据目录可用 `WHALE_HOME=/path/to/data` 或 `--whale-data=/path/to/data` 隔离。不要把真实密钥、账本或用户素材提交到仓库。
+`npm run desktop` 在 macOS 上启动独立模式；Windows 开发模式仍进入上游保留的跟随模式，已打包 Windows App 默认独立启动。开发数据目录可用 `WHALE_HOME=/path/to/data` 或 `--whale-data=/path/to/data` 隔离。Windows 原生分享 helper 用 Visual Studio C++/WinRT 编译（见下文）；不要求终端用户安装 Node 或开发工具。不要把真实密钥、账本或用户素材提交到仓库。
 
 ## 打包与验证
 
 ```bash
-npm install
-npm run build:mac
-npm run verify:mac
-bash scripts/create-dmg.sh
-bash scripts/smoke-mac-app.sh
+npm ci
+npm test
+ARCH=x64 npm run build:mac       # 或 ARCH=arm64
+ARCH=x64 npm run verify:mac
+ARCH=x64 bash scripts/create-dmg.sh
+ARCH=x64 bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app'
 ```
 
-`build:mac` 使用固定 Electron 依赖生成 arm64 `.app`，从 `assets/DSniang1.png` 生成任务栏/App 图标，并执行 ad-hoc 签名。验证脚本检查 App 版本、arm64 主程序、asar 资源、代码签名完整性和 DMG 挂载内容；smoke 脚本会在隔离数据目录启动实际打包 App，复现旧版 248×274 窗口，并在同一次运行内验证悬停按钮不扩窗、0.6/1.6/2.5/1.0 缩放往返、打开菜单时人偶锚点、合成输入链和 DOM/原生窗口几何，再安全退出。smoke 的输入注入是打包 App 内的合成 Electron 事件，只作为桥接回归；它不会伪称已完成 macOS Accessibility/物理鼠标验收，后者需在真实 Mac 上人工复核。打包会排除不参与 standalone 运行的开发/Windows/文档冗余；Electron Chromium 本体仍是主要体积。
+Windows 打包需在对应原生架构的 Visual Studio Developer 环境中运行：
+
+```powershell
+./scripts/build-windows-share.ps1 -Arch x64 # ARM64 runner 使用 -Arch arm64
+./scripts/build-windows.ps1 -Arch x64 -Version 0.3.0-beta.1
+./scripts/smoke-windows-app.ps1 -AppDir 'dist/windows-x64/AI Balance Whale-win32-x64' -Arch x64 -OutputDir 'qa-output/windows-x64' -Installer 'dist/windows-x64/AI-Balance-Whale-windows-x64-v0.3.0-beta.1-setup.exe'
+```
+
+`npm test` 包含语法、坐标模型、HTTPS 设置校验、文件路径拒绝规则、macOS ShareMenu／Windows helper 注入契约以及现有额度 Auth 回归。打包 smoke 会启动实际 `.app`／`.exe`，检查角色资源、命中区域、配置旧版窗口迁移、聊天按钮一次打开、快速连点与 20 轮同进程缩放；Windows 还测试安装到含空格路径后运行与卸载，macOS 验证 DMG 可挂载。`sendInputEvent` 是合成 Electron 输入，不是 OS 物理鼠标验收；GitHub-hosted runner 不验证系统分享面板中目标 App 的真实选择或文件收件结果。smoke 截图与诊断将作为 Actions artifacts 上传。Electron/Chromium 仍是安装包主体积，本次只报告体积，不移除运行时功能。
 
 GitHub Actions：
 
-- `macOS standalone CI` 在 `main`、`for-macdesktop` 的 push 和 PR 上构建、校验和启动打包 App；
-- `macOS Release` 只响应 `macos-v*` 标签或手动 dispatch，严格检查版本/标签冲突、构建提交、DMG 内容和 SHA-256；
-- Release job 才有 `contents: write`，PR/普通 CI 不使用签名 secrets，也不发布 npm 包。
+- `Cross-platform desktop acceptance` 对 PR 与开发分支运行行为测试，并分别在 `windows-2022`、`windows-11-vs2026-arm`、`macos-15-intel`、`macos-15` 原生 runner 上构建、启动最终包和运行打包检查；Mac runner 固定选择 Xcode 16.4，Node 固定 24.8.0。
+- `Cross-platform desktop prerelease` 接受 `desktop-v*` 标签和手动输入；发布矩阵先解析单一源 SHA，全部四架构验收后才制作 draft Release，校验远程资产后公开。
+- PR/普通 CI 只有 `contents: read`，没有真实 Auth 凭据或签名 secrets；Windows 安装包与 macOS App 当前均未做正式开发者签名/公证。此仓库不向 npm 发布。
 
 更细的结构和验收记录见：
 
 - [macOS 独立模式说明](docs/MACOS-STANDALONE.md)
 - [上游迁移记录](docs/UPSTREAM-MIGRATION.md)
 - [macOS 验证清单](docs/MACOS-VERIFICATION.md)
+- [跨平台桌面、快速聊天与文件分享](docs/CROSS-PLATFORM-DESKTOP.md)
 - [来源与许可](PROVENANCE.md)
 
 ## 数据与安全

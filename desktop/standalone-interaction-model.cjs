@@ -27,6 +27,23 @@ function resizeKeepingBottomRight(frame, width, height, area, min = 122) {
   }, area, min);
 }
 
+function widgetScreenAnchor(frame, roleAnchorRatio = 0.70275) {
+  return {
+    x: Number(frame.x) + Number(frame.width) * roleAnchorRatio,
+    y: Number(frame.y) + Number(frame.height),
+  };
+}
+
+function resizeKeepingWidgetAnchor(frame, width, height, area, roleAnchorRatio = 0.70275, anchor = widgetScreenAnchor(frame, roleAnchorRatio), min = 122) {
+  if (!anchor || !finite(anchor.x) || !finite(anchor.y) || !finite(roleAnchorRatio) || roleAnchorRatio < 0 || roleAnchorRatio > 1) return clampFrameToArea({ ...frame, width, height }, area, min);
+  return clampFrameToArea({
+    x: Number(anchor.x) - Number(width) * roleAnchorRatio,
+    y: Number(anchor.y) - Number(height),
+    width,
+    height,
+  }, area, min);
+}
+
 function screenMoved(start, current, threshold = 3) {
   if (!start || !current || ![start.x, start.y, current.x, current.y].every(finite)) return false;
   const dx = Number(current.x) - Number(start.x);
@@ -58,15 +75,17 @@ function expandedSurfaceFromState(state = {}) {
   return !!(state.menuOpen || state.dialogOpen || state.editorOpen || state.maskOpen || state.listOpen);
 }
 
-function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = null) {
+function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = null, roleAnchorRatio = 0.70275) {
   const frameWidth = Math.round(Number(frame?.width) || 0);
   const frameHeight = Math.round(Number(frame?.height) || 0);
   const compactW = Math.round(Number(compactWidth) || 0);
   const compactH = Math.round(Number(compactHeight) || 0);
-  const desiredRight = finite(screenAnchor?.right) ? Number(screenAnchor.right) : Number(frame?.x || 0) + frameWidth;
-  const desiredBottom = finite(screenAnchor?.bottom) ? Number(screenAnchor.bottom) : Number(frame?.y || 0) + frameHeight;
+  const hasRoleAnchor = finite(screenAnchor?.x) && finite(screenAnchor?.y);
+  const ratio = hasRoleAnchor ? roleAnchorRatio : 1;
+  const desiredX = hasRoleAnchor ? Number(screenAnchor.x) : finite(screenAnchor?.right) ? Number(screenAnchor.right) : Number(frame?.x || 0) + frameWidth;
+  const desiredBottom = hasRoleAnchor ? Number(screenAnchor.y) : finite(screenAnchor?.bottom) ? Number(screenAnchor.bottom) : Number(frame?.y || 0) + frameHeight;
   return {
-    left: Math.max(0, Math.min(Math.max(0, frameWidth - compactW), Math.round(desiredRight - Number(frame?.x || 0) - compactW))),
+    left: Math.max(0, Math.min(Math.max(0, frameWidth - compactW), Math.round(desiredX - Number(frame?.x || 0) - compactW * ratio))),
     top: Math.max(0, Math.min(Math.max(0, frameHeight - compactH), Math.round(desiredBottom - Number(frame?.y || 0) - compactH))),
   };
 }
@@ -75,6 +94,8 @@ module.exports = {
   targetWidgetSize,
   clampFrameToArea,
   resizeKeepingBottomRight,
+  widgetScreenAnchor,
+  resizeKeepingWidgetAnchor,
   screenMoved,
   nativeDragMovement,
   cursorInRegions,

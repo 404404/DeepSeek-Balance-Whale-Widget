@@ -1,0 +1,202 @@
+name: Cross-platform desktop acceptance
+
+on:
+  pull_request:
+    branches: [for-macdesktop]
+  push:
+    branches: [for-macdesktop, 'feat/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24.8.0'
+  APP_VERSION: '0.3.0-beta.1'
+
+jobs:
+  unit:
+    name: logic-and-contract-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
+      - name: Record test environment
+        run: node -p 'JSON.stringify({runnerOS:process.platform,runnerArch:process.arch,node:process.version,electron:require("electron/package.json").version})'
+
+  packaged:
+    name: package-${{ matrix.target }}
+    needs: unit
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-2022
+            os: windows
+            arch: x64
+            msvc_arch: amd64
+          - target: windows-arm64
+            runner: windows-11-vs2026-arm
+            os: windows
+            arch: arm64
+            msvc_arch: amd64_arm64
+          - target: macos-x64
+            runner: macos-15-intel
+            os: macos
+            arch: x64
+          - target: macos-arm64
+            runner: macos-15
+            os: macos
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-node-${{ env.NODE_VERSION }}-${{ hashFiles('package-lock.json') }}
+      - name: Install locked dependencies and run product logic tests
+        run: npm ci --no-audit --no-fund && npm test
+        shell: bash
+      - name: Record runner and dependency architecture
+        run: |
+          node -p 'JSON.stringify({target:"${{ matrix.target }}",runnerOS:process.platform,runnerArch:process.arch,node:process.version,electron:require("electron/package.json").version},null,2)'
+          git rev-parse HEAD
+      - name: Select fixed Xcode 16.4
+        if: matrix.os == 'macos'
+        run: |
+          test -d /Applications/Xcode_16.4.app
+          sudo xcode-select -s /Applications/Xcode_16.4.app
+          xcodebuild -version
+          uname -m
+      - name: Install pinned Inno Setup
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --version=6.4.3 --yes --no-progress
+          $Compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $Compiler)) { throw "Pinned Inno Setup compiler missing: $Compiler" }
+          "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Configure native MSVC target
+        if: matrix.os == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+          vsversion: ${{ matrix.arch == 'arm64' && '2026' || '2022' }}
+      - name: Parse PowerShell build scripts
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $Files = @('scripts/build-windows.ps1','scripts/build-windows-share.ps1','scripts/verify-windows-app.ps1','scripts/smoke-windows-app.ps1')
+          foreach ($File in $Files) {
+            $Tokens = $null; $Errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD $File), [ref]$Tokens, [ref]$Errors)
+            if ($Errors.Count) { throw "$File parse failure: $($Errors | Out-String)" }
+          }
+      - name: Build native Windows share helper
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/build-windows-share.ps1 -Arch '${{ matrix.arch }}'
+      - name: Build, verify, launch and install-test Windows package
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          TARGET_ARCH: ${{ matrix.arch }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          $Version = '${{ env.APP_VERSION }}'
+          $Output = "dist\windows-${{ matrix.arch }}"
+          ./scripts/build-windows.ps1 -Arch '${{ matrix.arch }}' -Version $Version -BuildNumber '${{ github.run_number }}' -OutputDir $Output
+          $App = Join-Path $PWD "$Output\AI Balance Whale-win32-${{ matrix.arch }}"
+          $Installer = Join-Path $PWD "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe"
+          $Portable = Join-Path $PWD "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip"
+          ./scripts/smoke-windows-app.ps1 -AppDir $App -Arch '${{ matrix.arch }}' -OutputDir "qa-output\windows-${{ matrix.arch }}" -Installer $Installer -PortableZip $Portable
+          $Stage = "qa-output\artifacts\${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+          Copy-Item "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe*" -Destination $Stage
+          Copy-Item "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip*" -Destination $Stage
+          node scripts/write-build-record.mjs '${{ matrix.target }}' "$Stage\build-record.json" "qa-output\windows-${{ matrix.arch }}\data-installed-${{ matrix.arch }}\runtime-environment.json" $App "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe.sha256" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip.sha256"
+      - name: Build, verify, launch and mount-test macOS package
+        if: matrix.os == 'macos'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ env.APP_VERSION }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          SOURCE_SHA: ${{ github.sha }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          set -euo pipefail
+          npm run build:mac
+          npm run verify:mac
+          bash scripts/create-dmg.sh
+          ARCH='${{ matrix.arch }}' bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app' 'qa-output/mac-${{ matrix.arch }}' "dist/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg"
+          stage='qa-output/artifacts/${{ matrix.target }}'
+          mkdir -p "$stage"
+          cp "dist/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg"* "$stage/"
+          node scripts/write-build-record.mjs '${{ matrix.target }}' "$stage/build-record.json" "qa-output/mac-${{ matrix.arch }}/data-legacy-248x274/runtime-environment.json" "qa-output/mac-${{ matrix.arch }}/installed/AI Balance Whale.app" "$stage/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg" "$stage/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg.sha256"
+      - name: Upload package, runtime screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-ci-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            qa-output/artifacts/${{ matrix.target }}/**
+            qa-output/mac-${{ matrix.arch }}/**
+            qa-output/windows-${{ matrix.arch }}/**
+          if-no-files-found: warn
+          retention-days: 21
+
+  acceptance-gate:
+    name: acceptance-gate
+    if: always()
+    needs: [unit, packaged]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require every logic and four-target package job
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+          PACKAGE_RESULT: ${{ needs.packaged.result }}
+        run: |
+          set -euo pipefail
+          printf 'unit=%s\npackaged=%s\n' "$UNIT_RESULT" "$PACKAGE_RESULT" | tee -a "$GITHUB_STEP_SUMMARY"
+          [[ "$UNIT_RESULT" == success && "$PACKAGE_RESULT" == success ]]
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-ci-*
+          path: release-inputs
+          merge-multiple: false
+      - name: Verify four architecture records and exact package hashes
+        run: node scripts/verify-release-set.mjs release-inputs '${{ github.sha }}' '${{ env.APP_VERSION }}'

@@ -4,6 +4,8 @@ const fs = require('node:fs');
 const { UiStateStore } = require('./ui-state-store.cjs');
 const { shutdownCompanion } = require('./lifecycle.cjs');
 const { externalWebUrl } = require('./external-links.cjs');
+const { createNativeShareHost } = require('./native-share-host.cjs');
+const QuickChatConfig = require('./quick-chat-config.cjs');
 const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '..');
 const dataDir = process.argv.find(a => a.startsWith('--whale-data='))?.slice(13);
@@ -20,7 +22,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'whale', privileges: { standard:
 fs.mkdirSync(path.join(dataDir, 'desktop-profile'), { recursive: true });
 app.setPath('userData', path.join(dataDir, 'desktop-profile'));
 const lock = app.requestSingleInstanceLock();
-let window, tray, dispatcher, bridge, lastHost = initialHost, owner = '', appliedBounds = '', rendererReady = false, quitting = false, manuallyHidden = false, hostHeartbeat = Date.now();
+let window, tray, dispatcher, bridge, nativeShareHost, lastHost = initialHost, owner = '', appliedBounds = '', rendererReady = false, quitting = false, manuallyHidden = false, hostHeartbeat = Date.now();
 const rendererErrors = [];
 const fixtureOpenedLinks = [];
 let hostSequence = -1;
@@ -32,7 +34,7 @@ const uiStore = new UiStateStore(stateFile);
 const values = () => uiStore.get();
 const storeValues = input => uiStore.set(input);
 let gpuStatus = null, inputEnabled = false, keyboardFocus = false, testCursor = null, lastCursor = '', presents = 0;
-let trustedGestureAt = 0;
+let trustedGestureAt = 0, trustedQuickChatAt = 0, externalDropActive = false;
 app.on('gpu-info-update', () => {
   gpuStatus = { hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), electron: process.versions.electron, chromium: process.versions.chrome };
   fs.promises.writeFile(path.join(dataDir, 'render-status.json'), JSON.stringify(gpuStatus, null, 2)).catch(() => {});
@@ -87,6 +89,26 @@ async function openWebLink(value, gestureRequired = true) {
     else await shell.openExternal(url);
     return true;
   } catch { return false; }
+}
+async function openQuickChat(event, input) {
+  if (!isMainFrame(event) || !trustedQuickChatAt || Date.now() - trustedQuickChatAt > 1000) {
+    trustedQuickChatAt = 0;
+    return { ok: false, error: '请直接点击快速聊天按钮后重试' };
+  }
+  trustedQuickChatAt = 0;
+  const config = input === undefined ? QuickChatConfig.storedConfig(values()) : QuickChatConfig.parseChatConfig(input);
+  const target = QuickChatConfig.resolveChatConfig(config);
+  if (!target) return { ok: false, error: '快速聊天网址无效，请检查设置' };
+  try {
+    if (fixture) fixtureOpenedLinks.push(target.url);
+    else await shell.openExternal(target.url);
+    return { ok: true, provider: target.provider };
+  } catch { return { ok: false, error: '系统默认浏览器无法打开该网址，请稍后重试' }; }
+}
+function applyInputRouting() {
+  if (!window || window.isDestroyed()) return;
+  const accept = inputEnabled || externalDropActive || !!nativeShareHost?.active;
+  try { window.setIgnoreMouseEvents(!accept, { forward: true }); } catch {}
 }
 async function setHost(host) {
   if (!host || typeof host.hostAlive !== 'boolean') return;
@@ -172,6 +194,7 @@ else {
     // Keep normal activation: Chromium's non-client handler consumes the first
     // mouse down (MA_NOACTIVATEANDEAT) when CanActivate/focusable is false.
     window = new BrowserWindow({ ...area, type: 'toolbar', transparent: true, frame: false, thickFrame: false, resizable: false, maximizable: false, fullscreenable: false, backgroundColor: '#00000000', hasShadow: false, skipTaskbar: true, show: false, title: 'API 余额小鲸鱼', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required', additionalArguments: fixture ? ['--whale-render-test'] : [] } });
+    nativeShareHost = createNativeShareHost({ app, window, screen, platform: process.platform, fixture, onActive: applyInputRouting });
     markStartup('windowCreated');
     window.once('ready-to-show', () => markStartup('frameReady'));
     if (fixture) window.webContents.on('console-message', (_event, ...args) => { const d = args[0]; if (typeof d === 'object' ? d.level === 'error' : d === 3) rendererErrors.push(typeof d === 'object' ? d.message : args[1]); });
@@ -204,6 +227,32 @@ else {
     ipcMain.on('whale-save-storage', (event, input) => { if (event.sender === window.webContents) storeValues(input); });
     ipcMain.on('whale-user-gesture', event => { if (isMainFrame(event)) trustedGestureAt = Date.now(); });
     ipcMain.handle('whale-open-external', (event, url) => isMainFrame(event) ? openWebLink(url) : false);
+    ipcMain.on('whale-quick-chat-gesture', event => { if (isMainFrame(event)) trustedQuickChatAt = Date.now(); });
+    ipcMain.handle('whale-open-quick-chat', (event, config) => openQuickChat(event, config));
+    ipcMain.handle('whale-save-chat-config', async (event, input) => {
+      if (!isMainFrame(event)) return { ok: false, error: '不允许的本地操作来源' };
+      const patch = QuickChatConfig.mergeStoredConfig(values(), input);
+      if (!patch) return { ok: false, error: '快速聊天网址无效：仅支持 HTTPS，且不能包含用户名或密码' };
+      const previous = values();
+      storeValues(patch);
+      try { await uiStore.flush(); return { ok: true, config: QuickChatConfig.storedConfig(values()) }; }
+      catch {
+        storeValues(previous);
+        try { await uiStore.flush(); } catch {}
+        return { ok: false, error: '快速聊天设置写入失败；原有设置未被替换' };
+      }
+    });
+    ipcMain.handle('whale-share-files', (event, paths) => isMainFrame(event)
+      ? nativeShareHost.share(paths)
+      : { ok: false, code: 'invalid-source', message: '不允许的本地操作来源' });
+    ipcMain.handle('whale-test-share-files', (event, paths) => fixture && isMainFrame(event)
+      ? nativeShareHost.share(paths)
+      : { ok: false, code: 'test-disabled', message: '仅测试构建允许此操作' });
+    ipcMain.on('whale-external-drop-active', (event, active) => {
+      if (!isMainFrame(event) || typeof active !== 'boolean') return;
+      externalDropActive = active;
+      applyInputRouting();
+    });
     ipcMain.on('whale-ready', event => {
       if (event.sender !== window.webContents) return;
       markStartup('imageAndInputReady');
@@ -212,7 +261,7 @@ else {
     ipcMain.on('whale-interactive', (event, enabled) => {
       if (event.sender !== window.webContents || typeof enabled !== 'boolean' || enabled === inputEnabled) return;
       inputEnabled = enabled;
-      window.setIgnoreMouseEvents(!enabled, { forward: true });
+      applyInputRouting();
     });
     ipcMain.on('whale-keyboard-focus', (event, editing) => {
       if (event.sender === window.webContents && typeof editing === 'boolean') setKeyboardFocus(editing);
@@ -246,6 +295,7 @@ else {
     event.preventDefault();
     if (quitting) return;
     quitting = true;
+    nativeShareHost?.close();
     // Do not leave an unresponsive input surface over Codex while saving state.
     try { if (window && !window.isDestroyed()) { window.setIgnoreMouseEvents(true); window.hide(); } } catch {}
     let finished = false;

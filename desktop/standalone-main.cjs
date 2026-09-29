@@ -5,20 +5,23 @@ const os = require('node:os');
 const { UiStateStore } = require('./ui-state-store.cjs');
 const { shutdownCompanion } = require('./lifecycle.cjs');
 const { externalWebUrl } = require('./external-links.cjs');
+const { createNativeShareHost } = require('./native-share-host.cjs');
+const QuickChatConfig = require('./quick-chat-config.cjs');
 const { pathToFileURL } = require('node:url');
-const { targetWidgetSize, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
+const { targetWidgetSize, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, resizeKeepingWidgetAnchor, widgetScreenAnchor, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
 
 const root = path.resolve(__dirname, '..');
 const MIN_WIDGET_SIZE = 122;
 const DEFAULT_WIDGET_SIZE = 375;
 const MAX_WIDGET_SIZE = 625;
+const ROLE_ANCHOR_RATIO = 0.70275;
 const args = process.argv.slice(1);
 const fixture = process.env.WHALE_DESKTOP_TEST === '1';
 const layoutTest = fixture || process.argv.includes('--whale-render-test');
 const interactionTest = process.argv.includes('--whale-interaction-test');
 const explicitDataDir = args.find(value => value.startsWith('--whale-data='))?.slice('--whale-data='.length);
 const productName = 'DeepSeek-Balance-Whale-Widget';
-const defaultDataDir = path.join(os.homedir(), 'Library', 'Application Support', productName);
+const defaultDataDir = path.join(app.getPath('appData'), productName);
 const dataDir = path.resolve(explicitDataDir || process.env.WHALE_HOME || defaultDataDir);
 const startupAt = Date.now();
 const startup = { revision: 'mac-standalone-0.1.0', requestedAt: Number(process.env.WHALE_LAUNCH_TIME) || startupAt, mainAt: startupAt, mode: 'standalone', phases: {} };
@@ -43,12 +46,15 @@ let rendererReady = false;
 let layoutConfigReady = false;
 let layoutReady = false;
 let inputEnabled = false;
+let externalDropActive = false;
+let nativeShareHost = null;
 let keyboardFocus = false;
 let manuallyHidden = false;
 let surfaceExpanded = false;
 let pendingSurface = null;
 let surfaceReason = 'none';
 let nativeDrag = null;
+let pendingWidgetSize = null;
 let quitting = false;
 let visibilityWatchdog = null;
 let inputRoutingWatchdog = null;
@@ -56,6 +62,9 @@ let frameSaveTimer = null;
 let lastCursor = '';
 let presents = 0;
 let trustedGestureAt = 0;
+let trustedQuickChatAt = 0;
+let widgetAnchor = null;
+let widgetAnchorRatio = ROLE_ANCHOR_RATIO;
 let lastWidgetSize = '';
 let lastNativeWidgetSize = '';
 let lastNativeRootOffset = '';
@@ -107,21 +116,28 @@ function initialFrame() {
   if (!validFrame(saved.frame)) return clampFrame({ ...defaultFrame(), width: size, height: size });
   const frame = numericFrame(saved.frame);
   // The native frame remembers the screen position only. Its old width/height
-  // can be a 122px feedback-loop artifact, a pre-fix 248x274 frame, or an
-  // expanded settings surface. Derive the startup size from the persisted
-  // scale and preserve the saved bottom-right screen anchor.
+  // can be a feedback-loop artifact, a pre-fix 248x274 frame, or an expanded
+  // settings surface. Preserve the role-layout bottom-centre screen anchor,
+  // not the window corner. A v2 anchor is authoritative after the first run.
+  const ratio = Number.isFinite(saved.widgetAnchorRatio) && saved.widgetAnchorRatio >= 0 && saved.widgetAnchorRatio <= 1 ? saved.widgetAnchorRatio : ROLE_ANCHOR_RATIO;
+  const anchor = saved.version >= 2 && saved.widgetAnchor && Number.isFinite(saved.widgetAnchor.x) && Number.isFinite(saved.widgetAnchor.y)
+    ? saved.widgetAnchor
+    : widgetScreenAnchor(frame, ratio);
   return clampFrame({
-    x: frame.x + frame.width - size,
-    y: frame.y + frame.height - size,
-    width: size,
-    height: size,
+    ...resizeKeepingWidgetAnchor(frame, size, size, workAreaFor(frame), ratio, anchor, MIN_WIDGET_SIZE),
   });
 }
 function readWindowState() { return read(windowStateFile, {}); }
 let alwaysOnTop = readWindowState().alwaysOnTop === true;
 function persistWindowState() {
   if (!window || window.isDestroyed()) return;
-  try { save(windowStateFile, { version: 1, frame: window.getBounds(), alwaysOnTop, updatedAt: new Date().toISOString() }); } catch {}
+  try {
+    const [width, height] = compactWidgetDimensions();
+    const actual = window.getBounds();
+    const anchor = widgetAnchor || widgetScreenAnchor(actual, widgetAnchorRatio);
+    const compact = resizeKeepingWidgetAnchor(actual, width, height, workAreaFor(actual), widgetAnchorRatio, anchor, MIN_WIDGET_SIZE);
+    save(windowStateFile, { version: 2, frame: compact, widgetAnchor: { x: anchor.x, y: anchor.y }, widgetAnchorRatio, alwaysOnTop, updatedAt: new Date().toISOString() });
+  } catch {}
 }
 function scheduleFrameSave() {
   if (!window || window.isDestroyed()) return;
@@ -190,8 +206,8 @@ function updateNativeInputRouting() {
   // forwarding the very event needed to make it interactive, which causes a
   // click/hover race and apparent window flight. The main process owns this
   // state and polls the stable screen-coordinate hit rectangle instead.
-  const next = !!nativeDrag || surfaceExpanded || cursorInsideHitRegion();
-  setInputEnabled(next, next ? (nativeDrag ? 'native-drag' : surfaceExpanded ? 'expanded-surface' : 'role-hit-region') : 'outside-role');
+  const next = !!nativeDrag || externalDropActive || !!nativeShareHost?.active || surfaceExpanded || cursorInsideHitRegion();
+  setInputEnabled(next, next ? (nativeDrag ? 'native-drag' : externalDropActive ? 'external-file-drop' : nativeShareHost?.active ? 'native-share' : surfaceExpanded ? 'expanded-surface' : 'role-hit-region') : 'outside-role');
   sendCursor();
 }
 function writeInputRoutingDiagnostic() {
@@ -219,6 +235,15 @@ async function interactionRendererEval(source) {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) throw new Error('renderer unavailable');
   return window.webContents.executeJavaScript(source, true);
 }
+async function captureInteractionScreenshot(name) {
+  if (!layoutTest || !window || window.isDestroyed()) return null;
+  const image = await window.webContents.capturePage();
+  const folder = path.join(dataDir, 'screenshots');
+  await fs.promises.mkdir(folder, { recursive: true });
+  const target = path.join(folder, `${name}.png`);
+  await fs.promises.writeFile(target, image.toPNG());
+  return target;
+}
 async function waitForInteractionFrame(width, height) {
   let frame = interactionFrame();
   for (let i = 0; i < 80; i += 1) {
@@ -238,45 +263,126 @@ async function waitForInteractionReady() {
 async function runInteractionTest() {
   if (interactionTestStarted || !window || window.isDestroyed()) return;
   interactionTestStarted = true;
-  const evidence = { version: 'mac-interaction-2', syntheticInputOnly: true, osPointerValidated: false, pass: false, steps: [] };
+  const evidence = { version: 'desktop-interaction-3', syntheticInputOnly: true, osPointerValidated: false, pass: false, screenshots: [], steps: [] };
   try {
     for (let i = 0; i < 100 && (!layoutReady || !window.isVisible()); i += 1) await interactionDelay(20);
     const initial = interactionFrame();
     const initialScale = Number(await interactionRendererEval("Number.parseFloat(getComputedStyle(document.querySelector('.dshwv-root')).getPropertyValue('--dshw-scale'))")) || 1.5;
-    await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r ? {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height} : null; })()");
-    await interactionRendererEval("(() => { const b=document.querySelector('.dshwv-menu-btn'); b?.classList.add('dshwv-menu-btn-visible'); return !!b; })()");
+    setInputEnabled(true, 'interaction-test-hover');
+    const initialRolePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r ? {x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)} : null; })()");
+    if (initialRolePoint) window.webContents.sendInputEvent({ type: 'mouseMove', x: initialRolePoint.x, y: initialRolePoint.y });
     await interactionDelay(220);
+    const hoverButtons = await interactionRendererEval("(() => { const c=document.querySelector('.dshwv-chat-btn'),m=document.querySelector('.dshwv-menu-btn'); const r=c?.getBoundingClientRect(); return {chat:!!c&&c.classList.contains('dshwv-chat-btn-visible'),menu:!!m&&m.classList.contains('dshwv-menu-btn-visible'),chatRect:r&&{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}}; })()");
+    if (hoverButtons?.chatRect) window.webContents.sendInputEvent({ type: 'mouseMove', x: hoverButtons.chatRect.x, y: hoverButtons.chatRect.y });
+    await interactionDelay(220);
+    evidence.screenshots.push(await captureInteractionScreenshot('widget-initial'));
     const hoverFrame = interactionFrame();
     const hoverStable = !!initial && !!hoverFrame && JSON.stringify({ x: initial.x, y: initial.y, width: initial.width, height: initial.height }) === JSON.stringify({ x: hoverFrame.x, y: hoverFrame.y, width: hoverFrame.width, height: hoverFrame.height });
-    evidence.steps.push({ name: 'hover-button-no-resize', pass: hoverStable, before: initial, after: hoverFrame });
+    evidence.steps.push({ name: 'real-page-hover-reveals-buttons-without-native-resize', pass: hoverStable && hoverButtons?.chat && hoverButtons?.menu, before: initial, after: hoverFrame, buttons: hoverButtons });
 
     const scaleResults = [];
-    let previousFrame = initial;
-    for (const scale of [0.6, 1.6, 2.5, 1.0]) {
+    const sequence = [1.5, 0.6, 2.5, 1.0, 1.5];
+    for (let cycle = 0; cycle < 20; cycle += 1) for (const scale of sequence) {
+      const before = interactionFrame();
+      const expectedAnchor = before ? widgetScreenAnchor(before, widgetAnchorRatio) : null;
       await interactionRendererEval(`window.__whaleRenderTest?.scale(${scale})`);
       const expected = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * scale)));
-      const expectedFrame = previousFrame ? resizeFrameKeepingBottomRight(previousFrame, expected, expected, workAreaFor(previousFrame), MIN_WIDGET_SIZE) : null;
+      const expectedFrame = before ? resizeKeepingWidgetAnchor(before, expected, expected, workAreaFor(before), widgetAnchorRatio, expectedAnchor, MIN_WIDGET_SIZE) : null;
       const frame = await waitForInteractionFrame(expected, expected);
       const dom = await interactionRendererEval("(() => { const root=document.querySelector('.dshwv-root')?.getBoundingClientRect(); const img=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return {root:root && {left:root.left,top:root.top,width:root.width,height:root.height}, image:img && {left:img.left,top:img.top,width:img.width,height:img.height}, scrollWidth:document.documentElement.scrollWidth, scrollHeight:document.documentElement.scrollHeight}; })()");
-      const nextAnchor = frame ? { right: frame.x + frame.width, bottom: frame.y + frame.height } : null;
+      const actualAnchor = frame ? widgetScreenAnchor(frame, widgetAnchorRatio) : null;
+      const targetAnchor = expectedFrame ? widgetScreenAnchor(expectedFrame, widgetAnchorRatio) : null;
       const sizePass = !!frame && !!dom?.root && Math.abs(dom.root.width - expected) <= 3 && Math.abs(dom.root.height - expected) <= 3 && Math.abs(frame.width - expected) <= 3 && Math.abs(frame.height - expected) <= 3;
-      const anchorPass = !!expectedFrame && !!frame && Math.abs(expectedFrame.x - frame.x) <= 3 && Math.abs(expectedFrame.y - frame.y) <= 3 && Math.abs(expectedFrame.width - frame.width) <= 3 && Math.abs(expectedFrame.height - frame.height) <= 3;
+      const anchorPass = !!expectedFrame && !!frame && !!actualAnchor && !!targetAnchor && Math.abs(actualAnchor.x - targetAnchor.x) <= 1 && Math.abs(actualAnchor.y - targetAnchor.y) <= 1;
       const visiblePass = !!dom?.image && dom.image.width > 0 && dom.image.height > 0 && dom.image.left >= dom.root.left - 2 && dom.image.top >= dom.root.top - 2 && dom.image.left + dom.image.width <= dom.root.left + dom.root.width + 2 && dom.image.top + dom.image.height <= dom.root.top + dom.root.height + 2 && dom.scrollWidth <= expected + 2 && dom.scrollHeight <= expected + 2;
-      scaleResults.push({ scale, expected, expectedFrame, frame, dom, sizePass, anchorPass, visiblePass });
-      previousFrame = frame;
+      scaleResults.push({ cycle, scale, expected, anchorBefore: expectedAnchor, anchorAfter: actualAnchor, frame, dom, sizePass, anchorPass, visiblePass });
     }
-    evidence.steps.push({ name: 'same-run-scale-roundtrip', pass: scaleResults.every(step => step.sizePass && step.anchorPass && step.visiblePass), results: scaleResults });
+    evidence.steps.push({ name: 'same-run-20-cycle-scale-roundtrip', pass: scaleResults.length === 100 && scaleResults.every(step => step.sizePass && step.anchorPass && step.visiblePass), cycles: 20, sequence, failures: scaleResults.filter(step => !step.sizePass || !step.anchorPass || !step.visiblePass), samples: scaleResults.filter(step => step.cycle === 0 || step.cycle === 19) });
 
+    const menuRolePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
+    if (menuRolePoint) window.webContents.sendInputEvent({ type: 'mouseMove', x: menuRolePoint.x, y: menuRolePoint.y });
+    await interactionDelay(100);
     const beforeMenuFrame = interactionFrame();
-    const beforeMenuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {right:r.right,bottom:r.bottom}; })()");
-    await interactionRendererEval("window.__whaleRenderTest?.menu(true)");
+    const beforeMenuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(),b=document.querySelector('.dshwv-menu-btn')?.getBoundingClientRect(); return r&&b ? {left:r.left,right:r.right,bottom:r.bottom,buttonX:Math.round(b.left+b.width/2),buttonY:Math.round(b.top+b.height/2)} : null; })()");
+    if (beforeMenuDom) {
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: beforeMenuDom.buttonX, y: beforeMenuDom.buttonY });
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: beforeMenuDom.buttonX, y: beforeMenuDom.buttonY, button: 'left', clickCount: 1 });
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: beforeMenuDom.buttonX, y: beforeMenuDom.buttonY, button: 'left', clickCount: 1 });
+    }
+    let menuOpened = false;
+    for (let i = 0; i < 60; i += 1) {
+      menuOpened = await interactionRendererEval("!!document.querySelector('.dshwv-menu')?.classList.contains('dshwv-menu-open')");
+      if (menuOpened) break;
+      await interactionDelay(25);
+    }
     await interactionDelay(300);
+    if (menuOpened) evidence.screenshots.push(await captureInteractionScreenshot('menu-open'));
     const menuFrame = interactionFrame();
-    const menuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {right:r.right,bottom:r.bottom}; })()");
-    const menuRoleStable = !!beforeMenuFrame && !!menuFrame && !!beforeMenuDom && !!menuDom && Math.abs(beforeMenuFrame.x + beforeMenuDom.right - (menuFrame.x + menuDom.right)) <= 3 && Math.abs(beforeMenuFrame.y + beforeMenuDom.bottom - (menuFrame.y + menuDom.bottom)) <= 3;
-    evidence.steps.push({ name: 'open-menu-keeps-role-anchor', pass: menuRoleStable, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: menuFrame, role: menuDom } });
-    await interactionRendererEval("window.__whaleRenderTest?.menu(false)");
+    const menuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {left:r.left,right:r.right,bottom:r.bottom}; })()");
+    const menuRoleStable = !!beforeMenuFrame && !!menuFrame && !!beforeMenuDom && !!menuDom && Math.abs(beforeMenuFrame.x + (beforeMenuDom.left+beforeMenuDom.right)/2 - (menuFrame.x + (menuDom.left+menuDom.right)/2)) <= 3 && Math.abs(beforeMenuFrame.y + beforeMenuDom.bottom - (menuFrame.y + menuDom.bottom)) <= 3;
+    evidence.steps.push({ name: 'native-input-opens-menu-and-keeps-role-anchor', pass: menuOpened && menuRoleStable, opened: menuOpened, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: menuFrame, role: menuDom } });
+    const closeMenuPoint = await interactionRendererEval("(() => { const b=document.querySelector('.dshwv-menu-btn')?.getBoundingClientRect(); return b&&{x:Math.round(b.left+b.width/2),y:Math.round(b.top+b.height/2)}; })()");
+    if (closeMenuPoint) {
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: closeMenuPoint.x, y: closeMenuPoint.y });
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: closeMenuPoint.x, y: closeMenuPoint.y, button: 'left', clickCount: 1 });
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: closeMenuPoint.x, y: closeMenuPoint.y, button: 'left', clickCount: 1 });
+    }
+    let menuClosed = false;
+    for (let i = 0; i < 60; i += 1) {
+      menuClosed = !(await interactionRendererEval("!!document.querySelector('.dshwv-menu')?.classList.contains('dshwv-menu-open')"));
+      if (menuClosed) break;
+      await interactionDelay(25);
+    }
+    evidence.steps.push({ name: 'native-input-closes-menu-without-residual-surface', pass: menuClosed, closed: menuClosed, frame: interactionFrame() });
     await interactionDelay(300);
+
+    const defaultChatConfig = QuickChatConfig.storedConfig(values());
+    const defaultChatPass = defaultChatConfig.provider === 'chatgpt';
+    const openedBeforeSettings = fixtureOpenedLinks.length;
+    await interactionRendererEval("window.dispatchEvent(new Event('whale-open-settings'))");
+    let settingsOpened = false;
+    for (let i = 0; i < 80; i += 1) {
+      settingsOpened = await interactionRendererEval("!!document.querySelector('#settings-dialog')?.open");
+      if (settingsOpened) break;
+      await interactionDelay(25);
+    }
+    if (settingsOpened) await interactionRendererEval("(() => { const p=document.querySelector('[name=chatProvider]'),u=document.querySelector('[name=customChatUrl]'),n=document.querySelector('[name=customChatName]'),f=document.querySelector('#settings-form'); if(!p||!u||!n||!f)return false; p.value='custom'; p.dispatchEvent(new Event('change',{bubbles:true})); u.value='https://chat.example.test/from-settings'; u.dispatchEvent(new Event('input',{bubbles:true})); n.value='验收聊天'; n.dispatchEvent(new Event('input',{bubbles:true})); f.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); return true; })()");
+    let savedChatConfig = QuickChatConfig.storedConfig(values());
+    let settingsClosed = false;
+    for (let i = 0; i < 100; i += 1) {
+      savedChatConfig = QuickChatConfig.storedConfig(values());
+      settingsClosed = await interactionRendererEval("!document.querySelector('#settings-dialog')?.open");
+      if (savedChatConfig.provider === 'custom' && settingsClosed) break;
+      await interactionDelay(25);
+    }
+    const settingsSurface = await interactionRendererEval("(() => ({title:document.querySelector('.dshwv-chat-btn')?.title,stored:localStorage.getItem('dshw-quick-chat'),error:document.querySelector('#settings-error')?.textContent||''}))()");
+    const settingsSavePass = defaultChatPass && settingsOpened && settingsClosed && savedChatConfig.provider === 'custom' && savedChatConfig.customUrl === 'https://chat.example.test/from-settings' && settingsSurface?.title?.includes('验收聊天') && fixtureOpenedLinks.length === openedBeforeSettings;
+    evidence.steps.push({ name: 'quick-chat-settings-default-edit-save-without-opening-browser', pass: settingsSavePass, initialProvider: defaultChatConfig.provider, saved: savedChatConfig, surface: settingsSurface, openedLinks: fixtureOpenedLinks.slice(openedBeforeSettings) });
+    await interactionDelay(250);
+
+    const chatFrameBefore = interactionFrame();
+    const chatQueueBefore = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    const chatRolePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
+    if (chatRolePoint) window.webContents.sendInputEvent({ type: 'mouseMove', x: chatRolePoint.x, y: chatRolePoint.y });
+    await interactionDelay(100);
+    const chatButton = await interactionRendererEval("(() => { const chat=document.querySelector('.dshwv-chat-btn'), settings=document.querySelector('.dshwv-menu-btn'); if(!chat||!settings||!chat.classList.contains('dshwv-chat-btn-visible'))return null; const c=chat.getBoundingClientRect(),s=settings.getBoundingClientRect(); return {x:Math.round(c.left+c.width/2),y:Math.round(c.top+c.height/2),left:c.left,top:c.top,right:c.right,bottom:c.bottom,settingsTop:s.top}; })()");
+    await interactionDelay(60);
+    const chatRegionPass = !!chatButton && chatButton.top >= 0 && chatButton.bottom <= window.getContentBounds().height + 1 && chatButton.bottom <= chatButton.settingsTop && hitRegions.some(region => region.left <= chatButton.x && region.left + region.width >= chatButton.x && region.top <= chatButton.y && region.top + region.height >= chatButton.y);
+    const openedBeforeChat = fixtureOpenedLinks.length;
+    const expectedChat = QuickChatConfig.resolveChatConfig(QuickChatConfig.storedConfig(values()));
+    setInputEnabled(true, 'quick-chat-button-test');
+    if (chatButton) {
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: chatButton.x, y: chatButton.y });
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: chatButton.x, y: chatButton.y, button: 'left', clickCount: 1 });
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: chatButton.x, y: chatButton.y, button: 'left', clickCount: 1 });
+      await interactionDelay(120);
+    }
+    evidence.screenshots.push(await captureInteractionScreenshot('quick-chat-button'));
+    const chatQueueAfter = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    const chatFrameAfter = interactionFrame();
+    const chatOpenedOnce = !!expectedChat && fixtureOpenedLinks.length === openedBeforeChat + 1 && fixtureOpenedLinks[openedBeforeChat] === expectedChat.url;
+    const chatDidNotMoveOrClick = !!chatFrameBefore && !!chatFrameAfter && chatFrameBefore.x === chatFrameAfter.x && chatFrameBefore.y === chatFrameAfter.y && chatFrameBefore.width === chatFrameAfter.width && chatFrameBefore.height === chatFrameAfter.height && chatQueueBefore?.epoch === chatQueueAfter?.epoch;
+    evidence.steps.push({ name: 'quick-chat-button-native-input-opens-once-without-moving-or-clicking-pet', pass: chatRegionPass && chatOpenedOnce && chatDidNotMoveOrClick, button: chatButton, expectedUrl: expectedChat?.url, hitRegions, opened: fixtureOpenedLinks.slice(openedBeforeChat), queueBefore: chatQueueBefore, queueAfter: chatQueueAfter, frameBefore: chatFrameBefore, frameAfter: chatFrameAfter });
 
     const role = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,left:r.left,top:r.top,right:r.right,bottom:r.bottom}; })()");
     const roleRegionPass = !!role && hitRegions.some(region => region.left <= role.left + 2 && region.top <= role.top + 2 && region.left + region.width >= role.right - 2 && region.top + region.height >= role.bottom - 2);
@@ -302,6 +408,7 @@ async function runInteractionTest() {
     const afterSecondClick = await sendRoleClick();
     const secondClickPass = !!afterClick && !!afterSecondClick && afterSecondClick.shown === true && afterSecondClick.epoch !== afterClick.epoch;
     evidence.steps.push({ name: 'synthetic-input-chain-second-click-advances', pass: secondClickPass, first: afterClick, second: afterSecondClick });
+    evidence.screenshots.push(await captureInteractionScreenshot('bubble-after-second-click'));
     await interactionRendererEval(`window.__whaleRenderTest?.scale(${initialScale})`);
     const restoredFrame = await waitForInteractionFrame(Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))), Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))));
     const restorePass = !!restoredFrame;
@@ -336,6 +443,8 @@ function toggle() { manuallyHidden ? show() : hide(); }
 function restoreWidget() {
   manuallyHidden = false;
   const frame = defaultFrame();
+  widgetAnchorRatio = ROLE_ANCHOR_RATIO;
+  widgetAnchor = widgetScreenAnchor(frame, widgetAnchorRatio);
   if (window && !window.isDestroyed()) {
     surfaceExpanded = false;
     surfaceReason = 'restore-widget';
@@ -374,10 +483,40 @@ async function openWebLink(value, gestureRequired = true) {
     return true;
   } catch { return false; }
 }
+async function openQuickChat(event, input) {
+  if (!isMainFrame(event) || !trustedQuickChatAt || Date.now() - trustedQuickChatAt > 1000) {
+    trustedQuickChatAt = 0;
+    return { ok: false, error: '请直接点击快速聊天按钮后重试' };
+  }
+  trustedQuickChatAt = 0;
+  const config = input === undefined ? QuickChatConfig.storedConfig(values()) : QuickChatConfig.parseChatConfig(input);
+  const target = QuickChatConfig.resolveChatConfig(config);
+  if (!target) return { ok: false, error: '快速聊天网址无效，请在设置中填写 HTTPS 地址' };
+  try {
+    if (fixture) fixtureOpenedLinks.push(target.url);
+    else await shell.openExternal(target.url);
+    return { ok: true, provider: target.provider };
+  } catch { return { ok: false, error: '系统默认浏览器无法打开该网址，请稍后重试' }; }
+}
 function resizeKeepingBottomRight(width, height) {
   if (!window || window.isDestroyed() || nativeDrag) return null;
   const current = window.getBounds();
   const target = resizeFrameKeepingBottomRight(current, width, height, workAreaFor(current), MIN_WIDGET_SIZE);
+  if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
+  window.setBounds(target);
+  scheduleFrameSave();
+  sendCursor(true);
+  updateNativeInputRouting();
+  return target;
+}
+function resizeWidgetAroundAnchor(width, height, requestedRatio = widgetAnchorRatio) {
+  if (!window || window.isDestroyed() || nativeDrag) return null;
+  const current = window.getBounds();
+  const ratio = Number.isFinite(requestedRatio) && requestedRatio >= 0 && requestedRatio <= 1 ? requestedRatio : ROLE_ANCHOR_RATIO;
+  const anchor = widgetAnchor || widgetScreenAnchor(current, widgetAnchorRatio);
+  const target = resizeKeepingWidgetAnchor(current, width, height, workAreaFor(current), ratio, anchor, MIN_WIDGET_SIZE);
+  widgetAnchorRatio = ratio;
+  widgetAnchor = widgetScreenAnchor(target, ratio);
   if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
   window.setBounds(target);
   scheduleFrameSave();
@@ -419,18 +558,18 @@ function applySurfaceGeometry(expanded) {
   if (!window || window.isDestroyed() || nativeDrag) return;
   if (expanded) {
     const before = window.getBounds();
-    const screenAnchor = { right: before.x + before.width, bottom: before.y + before.height };
+    const screenAnchor = widgetAnchor || widgetScreenAnchor(before, widgetAnchorRatio);
     const target = resizeKeepingBottomRight(760, 700) || window.getBounds();
     const [width, height] = compactWidgetDimensions();
     // The role is laid out at the compact root's bottom/right. Preserve its
     // pre-expansion screen anchor when the expanded frame fits; when the
     // display edge clamps that frame, clamp the local offset to the feasible
     // part of the new content instead of moving the role to the new corner.
-    const offset = surfaceRootOffset(target, width, height, screenAnchor);
+    const offset = surfaceRootOffset(target, width, height, screenAnchor, widgetAnchorRatio);
     sendNativeRootOffset(offset.left, offset.top);
   } else {
     const [width, height] = compactWidgetDimensions();
-    resizeKeepingBottomRight(width, height);
+    resizeWidgetAroundAnchor(width, height);
     sendNativeRootOffset(0, 0);
   }
   requestRendererLayout();
@@ -449,17 +588,24 @@ function setSurface(expanded, reason) {
   }
   pendingSurface = null;
   applySurfaceGeometry(next);
+  if (!next && pendingWidgetSize) {
+    const pending = pendingWidgetSize;
+    pendingWidgetSize = null;
+    setWidgetSize(pending);
+  }
 }
 function setWidgetSize(size) {
   // The page reports its content geometry in one direction only. It must never
   // resize the native window while a native drag is in progress.
-  if (surfaceExpanded || nativeDrag || !layoutConfigReady || !size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
+  if (!layoutConfigReady || !size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
   const width = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(Number(size.requestedWidth) || Number(size.width))));
   const height = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(Number(size.requestedHeight) || Number(size.height))));
   const key = width + 'x' + height;
-  if (key === lastWidgetSize) return;
+  const ratio = Number.isFinite(size.anchorRatioX) && size.anchorRatioX >= 0 && size.anchorRatioX <= 1 ? Number(size.anchorRatioX) : widgetAnchorRatio;
+  if (surfaceExpanded || nativeDrag) { pendingWidgetSize = { ...size, requestedWidth: width, requestedHeight: height, anchorRatioX: ratio }; return; }
+  if (key === lastWidgetSize && Math.abs(ratio - widgetAnchorRatio) < 0.0001) return;
   lastWidgetSize = key;
-  resizeKeepingBottomRight(width, height);
+  resizeWidgetAroundAnchor(width, height, ratio);
   if (!layoutReady && window && !window.isDestroyed()) {
     // The native content bounds after setBounds are the final geometry
     // contract. Comparing against them avoids a second screen-size formula
@@ -484,7 +630,7 @@ function cursorScreenPoint(fallback) {
 function startNativeDrag(point) {
   if (!window || window.isDestroyed() || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
   const cursor = cursorScreenPoint(point);
-  nativeDrag = { x: cursor.x, y: cursor.y, frame: window.getBounds(), moved: false };
+  nativeDrag = { x: cursor.x, y: cursor.y, frame: window.getBounds(), widgetAnchor: widgetAnchor ? { ...widgetAnchor } : widgetScreenAnchor(window.getBounds(), widgetAnchorRatio), moved: false };
   setInputEnabled(true, 'native-drag');
 }
 function moveNativeDrag(point) {
@@ -504,13 +650,23 @@ function moveNativeDrag(point) {
 function endNativeDrag() {
   if (!nativeDrag) return;
   const completed = nativeDrag.moved;
+  const gesture = nativeDrag;
   nativeDrag = null;
-  if (completed) scheduleFrameSave();
+  if (completed) {
+    const frame = window.getBounds();
+    widgetAnchor = { x: gesture.widgetAnchor.x + frame.x - gesture.frame.x, y: gesture.widgetAnchor.y + frame.y - gesture.frame.y };
+    scheduleFrameSave();
+  }
   writeLayoutDiagnostic();
   if (pendingSurface !== null) {
     const next = pendingSurface;
     pendingSurface = null;
     applySurfaceGeometry(next);
+  }
+  if (!surfaceExpanded && pendingWidgetSize) {
+    const pending = pendingWidgetSize;
+    pendingWidgetSize = null;
+    setWidgetSize(pending);
   }
   updateNativeInputRouting();
   requestRendererLayout();
@@ -521,11 +677,13 @@ function writeLayoutDiagnostic() {
 }
 function handleDisplayChange() {
   if (!window || window.isDestroyed() || surfaceExpanded) return;
-  lastWidgetSize = '';
-  lastNativeWidgetSize = '';
+    lastWidgetSize = '';
+    lastNativeWidgetSize = '';
+    pendingWidgetSize = null;
   const fixed = clampFrame(window.getBounds());
   const current = window.getBounds();
   if (JSON.stringify(fixed) !== JSON.stringify(current)) window.setBounds(fixed);
+  widgetAnchor = widgetScreenAnchor(fixed, widgetAnchorRatio);
   scheduleFrameSave();
 }
 function importLegacyFiles() {
@@ -561,6 +719,9 @@ if (!lock) {
   app.on('activate', show);
   app.whenReady().then(async () => {
     markStartup('appReady');
+    if (layoutTest) {
+      try { save(path.join(dataDir, 'runtime-environment.json'), { platform: process.platform, arch: process.arch, electron: process.versions.electron, node: process.versions.node, appPackaged: app.isPackaged, appPath: app.getAppPath(), executablePath: process.execPath, at: new Date().toISOString() }); } catch {}
+    }
     const { createDispatcher, UI_ORIGIN } = await import(pathToFileURL(path.join(root, 'runtime', 'dispatcher.mjs')));
     const { startBridge } = await import(pathToFileURL(path.join(root, 'runtime', 'bridge.mjs')));
     dispatcher = createDispatcher({
@@ -585,6 +746,9 @@ if (!lock) {
       return new Response(request.method === 'HEAD' ? null : result.body, { status: result.status, headers: result.headers });
     });
     const frame = initialFrame();
+    const savedGeometry = readWindowState();
+    widgetAnchorRatio = Number.isFinite(savedGeometry.widgetAnchorRatio) && savedGeometry.widgetAnchorRatio >= 0 && savedGeometry.widgetAnchorRatio <= 1 ? savedGeometry.widgetAnchorRatio : ROLE_ANCHOR_RATIO;
+    widgetAnchor = widgetScreenAnchor(frame, widgetAnchorRatio);
     window = new BrowserWindow({
       ...frame,
       transparent: true,
@@ -606,6 +770,14 @@ if (!lock) {
         sandbox: true,
         backgroundThrottling: false,
         autoplayPolicy: 'no-user-gesture-required',
+      },
+    });
+    nativeShareHost = createNativeShareHost({
+      app, window, screen, platform: process.platform, fixture,
+      onActive: () => updateNativeInputRouting(),
+      onOpened: detail => {
+        if (!layoutTest) return;
+        try { save(path.join(dataDir, 'share-ui-diagnostic.json'), { platform: detail.platform, fileCount: detail.fileCount, fixture: !!detail.fixture, at: new Date().toISOString() }); } catch {}
       },
     });
     markStartup('windowCreated');
@@ -637,6 +809,7 @@ if (!lock) {
       hitRegions = [];
       lastNativeRootOffset = '';
       pendingSurface = null;
+      pendingWidgetSize = null;
       setInputEnabled(false, 'renderer-gone');
       try { save(path.join(dataDir, 'renderer-gone.json'), { at: new Date().toISOString(), reason: details?.reason || 'unknown' }); } catch {}
       if (!quitting && !window.isDestroyed()) setTimeout(() => { if (!window.isDestroyed()) window.webContents.reload(); }, 500);
@@ -648,6 +821,7 @@ if (!lock) {
       hitRegions = [];
       lastNativeRootOffset = '';
       pendingSurface = null;
+      pendingWidgetSize = null;
       if (surfaceExpanded) {
         surfaceExpanded = false;
         surfaceReason = 'navigation-start';
@@ -665,6 +839,32 @@ if (!lock) {
     ipcMain.on('whale-save-storage', (event, input) => { if (event.sender === window?.webContents) storeValues(input); });
     ipcMain.on('whale-user-gesture', event => { if (isMainFrame(event)) trustedGestureAt = Date.now(); });
     ipcMain.handle('whale-open-external', (event, url) => isMainFrame(event) ? openWebLink(url) : false);
+    ipcMain.on('whale-quick-chat-gesture', event => { if (isMainFrame(event)) trustedQuickChatAt = Date.now(); });
+    ipcMain.handle('whale-open-quick-chat', (event, config) => openQuickChat(event, config));
+    ipcMain.handle('whale-save-chat-config', async (event, input) => {
+      if (!isMainFrame(event)) return { ok: false, error: '不允许的本地操作来源' };
+      const patch = QuickChatConfig.mergeStoredConfig(values(), input);
+      if (!patch) return { ok: false, error: '快速聊天网址无效：仅支持 HTTPS，且不能包含用户名或密码' };
+      const previous = values();
+      storeValues(patch);
+      try { await uiStore.flush(); return { ok: true, config: QuickChatConfig.storedConfig(values()) }; }
+      catch {
+        storeValues(previous);
+        try { await uiStore.flush(); } catch {}
+        return { ok: false, error: '快速聊天设置写入失败；原有设置未被替换' };
+      }
+    });
+    ipcMain.handle('whale-share-files', (event, paths) => isMainFrame(event)
+      ? nativeShareHost.share(paths)
+      : { ok: false, code: 'invalid-source', message: '不允许的本地操作来源' });
+    ipcMain.handle('whale-test-share-files', (event, paths) => layoutTest && isMainFrame(event)
+      ? nativeShareHost.share(paths)
+      : { ok: false, code: 'test-disabled', message: '仅测试构建允许此操作' });
+    ipcMain.on('whale-external-drop-active', (event, active) => {
+      if (!isMainFrame(event) || typeof active !== 'boolean') return;
+      externalDropActive = active;
+      updateNativeInputRouting();
+    });
     ipcMain.on('whale-ready', event => {
       if (event.sender !== window?.webContents) return;
       markStartup('imageAndInputReady');
@@ -757,6 +957,7 @@ if (!lock) {
       clearInterval(visibilityWatchdog);
       clearInterval(inputRoutingWatchdog);
       clearTimeout(frameSaveTimer);
+      nativeShareHost?.close();
       globalShortcut.unregisterAll();
       screen.removeListener('display-metrics-changed', handleDisplayChange);
       screen.removeListener('display-removed', handleDisplayChange);
@@ -771,6 +972,7 @@ if (!lock) {
     event.preventDefault();
     if (quitting) return;
     quitting = true;
+    nativeShareHost?.close();
     try { if (window && !window.isDestroyed()) { window.setIgnoreMouseEvents(true); window.hide(); } } catch {}
     let finished = false;
     const finish = () => { if (finished) return; finished = true; app.exit(0); };

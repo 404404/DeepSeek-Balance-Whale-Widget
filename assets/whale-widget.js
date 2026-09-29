@@ -52,6 +52,7 @@
     // Extra settings must remain reachable in a small Codex window. Popovers
     // are mounted on document.body, so scrolling this panel does not clip them.
     styleEl.textContent += '\n.dshwv-menu{max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}';
+    styleEl.textContent += '\n.dshwv-chat-btn{position:absolute;top:calc(40.55% - 26px);right:4px;width:26px;height:26px;border:0;border-radius:6px;background:rgba(32,49,112,.85);color:#fff;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;pointer-events:auto;z-index:3;opacity:0;visibility:hidden;transition:opacity .15s ease}.dshwv-chat-btn-visible{opacity:1;visibility:visible}.dshwv-chat-btn:hover{background:#203170}.dshwv-chat-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.dshwv-root.dshwv-left .dshwv-chat-btn{transform:scaleX(-1)}.dshwv-root.dshwv-share-drop-active .dshwv-img{filter:drop-shadow(0 0 6px rgba(20,107,112,.85))}';
     // 0.2.0 additions: the gray "!" button that reveals the FX explanation.
     styleEl.textContent += '\n.dshwv-fxicon{flex:0 0 auto;width:18px;height:18px;border-radius:50%;border:1px solid rgba(32,49,112,.25);background:rgba(32,49,112,.10);color:#4a5c95;font-size:11px;font-weight:700;line-height:1;padding:0;cursor:pointer;margin-right:2px}';
     styleEl.textContent += '\n.dshwv-fxicon:hover{background:rgba(32,49,112,.20);color:#203170}';
@@ -83,6 +84,31 @@
       e.stopPropagation();
       toggleMenu();
     });
+    var chatBtn = document.createElement('button');
+    chatBtn.type = 'button';
+    chatBtn.className = 'dshwv-chat-btn';
+    chatBtn.setAttribute('aria-label', '快速聊天');
+    chatBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.8A2.8 2.8 0 0 1 6.8 3h10.4A2.8 2.8 0 0 1 20 5.8v7.4a2.8 2.8 0 0 1-2.8 2.8h-5.5l-4.9 4v-4H6.8A2.8 2.8 0 0 1 4 13.2z"/><path d="M8 8h8M8 11h5"/></svg>';
+    function quickChatConfig() {
+      try { return window.WhaleQuickChatConfig ? window.WhaleQuickChatConfig.parseChatConfig(localStorage.getItem('dshw-quick-chat')) : { provider: 'chatgpt' }; }
+      catch (err) { return { provider: 'chatgpt' }; }
+    }
+    function updateQuickChatTitle() {
+      var config = quickChatConfig(), resolved = window.WhaleQuickChatConfig && window.WhaleQuickChatConfig.resolveChatConfig(config);
+      var title = '快速聊天' + (resolved && resolved.name ? ' · ' + resolved.name : '');
+      chatBtn.title = title;
+      chatBtn.setAttribute('aria-label', title);
+    }
+    window.addEventListener('whale-quick-chat-config-changed', updateQuickChatTitle);
+    chatBtn.addEventListener('click', async function (e) {
+      e.preventDefault(); e.stopPropagation();
+      if (!window.whaleDesktop || typeof window.whaleDesktop.openQuickChat !== 'function') return;
+      try {
+        var result = await window.whaleDesktop.openQuickChat();
+        if (!result || !result.ok) window.whaleToast && window.whaleToast(result && result.error || '无法打开聊天网站，请检查快速聊天设置');
+      } catch (err) { window.whaleToast && window.whaleToast('无法打开聊天网站，请稍后重试'); }
+    });
+    updateQuickChatTitle();
     var menuBox = document.createElement('div');
     menuBox.className = 'dshwv-menu';
     menuBox.addEventListener('scroll', function () {
@@ -7794,6 +7820,7 @@
     body.appendChild(bubbleBox);
     root.appendChild(body);
     root.appendChild(menuBtn);
+    root.appendChild(chatBtn);
     document.body.appendChild(positioner);
     document.body.appendChild(menuBox);
     var dshwCenterX = 44.25;
@@ -9070,6 +9097,7 @@
       // stale coordinates after a native drag or resize.
       positioner.style.transform = standaloneDesktop ? 'translate3d(0,0,0)' : 'translate3d(' + state.left + 'px,' + state.top + 'px,0)';
       root.classList.toggle('dshwv-left', !!state.flip);
+      window.dispatchEvent(new Event('whale-anchor-change'));
       WhaleRendering.presentFor(drag && drag.active ? 0 : 200);
     }
     function settle() {
@@ -11244,6 +11272,7 @@
     }
     function onDocPointerDown(e) {
       if (e.target && e.target.closest) {
+        if (e.target.closest('.dshwv-chat-btn')) return;
         if (e.target.closest('dialog') || e.target.closest('#settings-dialog') || e.target.closest('#settings-form') || e.target.closest('#toast')) return;
         if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu-btn')) return;
         if (e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-cropmask') || e.target.closest('.dshwv-confirmmask') || e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') || e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') || e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn') || e.target.closest('.dshwv-fxinfo') || e.target.closest('.dshwv-fxicon')) return;
@@ -11325,6 +11354,7 @@
     }
     function onDocClickStopper(e) {
       if (e.target && e.target.closest) {
+        if (e.target.closest('.dshwv-chat-btn')) return;
         if (e.target.closest('dialog') || e.target.closest('#settings-dialog') || e.target.closest('#toast')) return;
         if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu') || e.target.closest('.dshwv-menu-btn') || e.target.closest('.dshwv-rolelist') || e.target.closest('.dshwv-cropmask') || e.target.closest('.dshwv-confirmmask') || e.target.closest('.dshwv-audiolist') || e.target.closest('.dshwv-audiomask') || e.target.closest('.dshwv-snapmask') || e.target.closest('.dshwv-bubmask') || e.target.closest('.dshwv-qedit') || e.target.closest('.dshwv-usagepanel') || e.target.closest('.dshwv-usage-mask') || e.target.closest('.dshwv-resmask') || e.target.closest('.dshwv-custmenu') || e.target.closest('.dshwv-custbtn') || e.target.closest('.dshwv-fxinfo') || e.target.closest('.dshwv-fxicon')) return;
       }
@@ -11336,6 +11366,7 @@
     }
     function onDocContextMenu(e) {
       try {
+        if (e.target && e.target.closest && e.target.closest('.dshwv-chat-btn')) return;
         if (!menuBtnHide) return;
         if (e.target && e.target.closest) {
           if (e.target.closest('dialog') || e.target.closest('#settings-dialog')) return;
@@ -11367,15 +11398,66 @@
       try {
         el = document.elementFromPoint(e.clientX, e.clientY);
       } catch (err) {}
+      if (el && el.closest && el.closest('.dshwv-chat-btn')) {
+        setWidgetCursor('');
+        chatBtn.classList.add('dshwv-chat-btn-visible');
+        if (!menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible');
+        return;
+      }
       if (el && el.closest && (el.closest('dialog') || el.closest('#settings-dialog') || el.closest('.dshwv-pop') || el.closest('.dshwv-menu') || el.closest('.dshwv-menu-btn') || el.closest('.dshwv-rolelist') || el.closest('.dshwv-cropmask') || el.closest('.dshwv-confirmmask') || el.closest('.dshwv-audiolist') || el.closest('.dshwv-audiomask') || el.closest('.dshwv-snapmask') || el.closest('.dshwv-bubmask') || el.closest('.dshwv-qedit') || el.closest('.dshwv-usagepanel') || el.closest('.dshwv-usage-mask') || el.closest('.dshwv-resmask') || el.closest('.dshwv-custmenu') || el.closest('.dshwv-custbtn') || el.closest('.dshwv-fxinfo') || el.closest('.dshwv-fxicon'))) {
         setWidgetCursor('');
+        chatBtn.classList.add('dshwv-chat-btn-visible');
         if (!menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible');
         return;
       }
       var over = isWhaleHit(e);
       setWidgetCursor(over ? 'grab' : '');
+      chatBtn.classList.toggle('dshwv-chat-btn-visible', over || menuOpen);
       if (!menuBtnHide) menuBtn.classList.toggle('dshwv-menu-btn-visible', over || menuOpen);
     }
+    function fileDrag(e) {
+      try { return !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')); }
+      catch (err) { return false; }
+    }
+    function onRoleFileDragOver(e) {
+      if (!fileDrag(e) || (e.target && e.target.closest && e.target.closest('.dshwv-chat-btn,.dshwv-menu-btn,.dshwv-menu,.dshwv-bubmask,.dshwv-qedit,.dshwv-linerow,.dshwv-pvmod'))) return;
+      if (!isWhaleHit(e)) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'copy'; } catch (err) {}
+      root.classList.add('dshwv-share-drop-active');
+      window.whaleDesktop && window.whaleDesktop.externalDropActive(true);
+    }
+    async function onRoleFileDrop(e) {
+      if (!fileDrag(e)) return;
+      // File drops are never allowed to navigate the packaged UI. Sharing is
+      // deliberately limited to the role hit area, not the transparent panel.
+      e.preventDefault();
+      if (e.target && e.target.closest && e.target.closest('.dshwv-chat-btn,.dshwv-menu-btn,.dshwv-menu,.dshwv-bubmask,.dshwv-qedit,.dshwv-linerow,.dshwv-pvmod')) {
+        root.classList.remove('dshwv-share-drop-active');
+        window.whaleDesktop && window.whaleDesktop.externalDropActive(false);
+        return;
+      }
+      if (!isWhaleHit(e)) {
+        root.classList.remove('dshwv-share-drop-active');
+        window.whaleDesktop && window.whaleDesktop.externalDropActive(false);
+        return;
+      }
+      e.stopPropagation();
+      root.classList.remove('dshwv-share-drop-active');
+      var result;
+      try { result = await window.whaleDesktop.shareDroppedFiles(e.dataTransfer.files); }
+      catch (err) { result = { ok: false, message: '系统分享面板无法打开，请重试' }; }
+      finally { window.whaleDesktop && window.whaleDesktop.externalDropActive(false); }
+      if (result && result.ok) window.whaleToast && window.whaleToast('已打开系统分享面板；是否发送由系统决定');
+      else if (result && result.code !== 'untrusted-drop') window.whaleToast && window.whaleToast(result && result.message || '无法分享这些文件，请检查文件后重试');
+    }
+    document.addEventListener('dragover', onRoleFileDragOver, true);
+    document.addEventListener('drop', onRoleFileDrop, true);
+    document.addEventListener('dragleave', function (e) {
+      if (e.relatedTarget || !fileDrag(e)) return;
+      root.classList.remove('dshwv-share-drop-active');
+      window.whaleDesktop && window.whaleDesktop.externalDropActive(false);
+    }, true);
     document.addEventListener('pointermove', onDocPointerMoveCursor, true);
     document.addEventListener('mousemove', onDocPointerMoveCursor, true);
     window.addEventListener('whale-hover', function (e) { onDocPointerMoveCursor({ clientX: e.detail.x, clientY: e.detail.y }); });

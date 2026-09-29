@@ -1,0 +1,343 @@
+name: Cross-platform desktop prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: App version, e.g. 0.3.0-beta.1
+        required: true
+        type: string
+      tag:
+        description: Tag, exactly desktop-v<version>
+        required: true
+        type: string
+      source_ref:
+        description: Branch, tag, or commit to build; resolved once before the matrix
+        required: true
+        default: for-macdesktop
+        type: string
+      prerelease:
+        description: Publish as a prerelease
+        required: true
+        default: true
+        type: boolean
+  push:
+    tags: ['desktop-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-source:
+    name: resolve-and-lock-source
+    runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.resolve.outputs.source_sha }}
+      version: ${{ steps.resolve.outputs.version }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      create_tag: ${{ steps.resolve.outputs.create_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.8.0'
+      - name: Validate version/tag and resolve one immutable source commit
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_SOURCE_REF: ${{ inputs.source_ref }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            VERSION="$INPUT_VERSION"
+            TAG="$INPUT_TAG"
+            SOURCE_REF="$INPUT_SOURCE_REF"
+            PRERELEASE="$INPUT_PRERELEASE"
+            [[ "$SOURCE_REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$ && "$SOURCE_REF" != *..* && "$SOURCE_REF" != */ && "$SOURCE_REF" != *// ]] || { echo 'invalid source_ref'; exit 1; }
+            [[ "$TAG" == "desktop-v$VERSION" ]] || { echo 'tag must exactly equal desktop-v<version>'; exit 1; }
+            [[ "$PRERELEASE" == true || "$PRERELEASE" == false ]] || { echo 'invalid prerelease input'; exit 1; }
+            if [[ "$PRERELEASE" == false && "$VERSION" == *-* ]]; then echo 'a prerelease version cannot be published as stable'; exit 1; fi
+            git fetch --no-tags origin "$SOURCE_REF"
+            SOURCE_SHA="$(git rev-parse 'FETCH_HEAD^{commit}')"
+            EXISTING="$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}")"
+            if [[ -n "$EXISTING" ]]; then echo "tag collision: $TAG already exists; refusing overwrite" >&2; exit 1; fi
+            CREATE_TAG=true
+          else
+            TAG="$REF_NAME"
+            VERSION="${TAG#desktop-v}"
+            SOURCE_SHA="$(git rev-parse 'HEAD^{commit}')"
+            [[ "$SOURCE_SHA" == "$EVENT_SHA" || "$(git rev-parse HEAD)" == "$EVENT_SHA" ]] || { echo 'tag checkout SHA differs from event SHA'; exit 1; }
+            PRERELEASE=true
+            CREATE_TAG=false
+            [[ "$(git rev-parse "$TAG^{commit}")" == "$SOURCE_SHA" ]] || { echo 'tag commit differs from checked-out source'; exit 1; }
+          fi
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'invalid release version'; exit 1; }
+          [[ "$TAG" =~ ^desktop-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'invalid release tag'; exit 1; }
+          git checkout --detach "$SOURCE_SHA"
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          [[ "$PACKAGE_VERSION" == "$VERSION" ]] || { echo "package version $PACKAGE_VERSION does not match requested $VERSION"; exit 1; }
+          {
+            echo "source_sha=$SOURCE_SHA"
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "prerelease=$PRERELEASE"
+            echo "create_tag=$CREATE_TAG"
+          } >> "$GITHUB_OUTPUT"
+          printf 'Source SHA: %s\nVersion: %s\nTag: %s\nPrerelease: %s\n' "$SOURCE_SHA" "$VERSION" "$TAG" "$PRERELEASE" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  packaged:
+    name: release-package-${{ matrix.target }}
+    needs: resolve-source
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-2022
+            os: windows
+            arch: x64
+            msvc_arch: amd64
+          - target: windows-arm64
+            runner: windows-11-vs2026-arm
+            os: windows
+            arch: arm64
+            msvc_arch: amd64_arm64
+          - target: macos-x64
+            runner: macos-15-intel
+            os: macos
+            arch: x64
+          - target: macos-arm64
+            runner: macos-15
+            os: macos
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.8.0'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-node-24.8.0-${{ hashFiles('package-lock.json') }}
+      - name: Install locked dependencies and execute regression tests
+        run: npm ci --no-audit --no-fund && npm test
+        shell: bash
+      - name: Select fixed Xcode 16.4
+        if: matrix.os == 'macos'
+        run: |
+          test -d /Applications/Xcode_16.4.app
+          sudo xcode-select -s /Applications/Xcode_16.4.app
+          xcodebuild -version
+          uname -a
+          node -p 'JSON.stringify({node:process.version,arch:process.arch,electron:require("electron/package.json").version})'
+      - name: Install pinned Inno Setup
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --version=6.4.3 --yes --no-progress
+          $Compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $Compiler)) { throw "Pinned Inno Setup compiler missing: $Compiler" }
+          "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Configure native MSVC target
+        if: matrix.os == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+          vsversion: ${{ matrix.arch == 'arm64' && '2026' || '2022' }}
+      - name: Build native Windows share helper
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/build-windows-share.ps1 -Arch '${{ matrix.arch }}'
+      - name: Build, verify, launch and install-test Windows package
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+          APP_VERSION: ${{ needs.resolve-source.outputs.version }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          $Version = '${{ needs.resolve-source.outputs.version }}'
+          $Output = "dist\windows-${{ matrix.arch }}"
+          ./scripts/build-windows.ps1 -Arch '${{ matrix.arch }}' -Version $Version -BuildNumber '${{ github.run_number }}' -OutputDir $Output
+          $App = Join-Path $PWD "$Output\AI Balance Whale-win32-${{ matrix.arch }}"
+          $Installer = Join-Path $PWD "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe"
+          $Portable = Join-Path $PWD "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip"
+          ./scripts/smoke-windows-app.ps1 -AppDir $App -Arch '${{ matrix.arch }}' -OutputDir "qa-output\windows-${{ matrix.arch }}" -Installer $Installer -PortableZip $Portable
+          $Stage = "qa-output\artifacts\${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $Stage | Out-Null
+          Copy-Item "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe*" -Destination $Stage
+          Copy-Item "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip*" -Destination $Stage
+          node scripts/write-build-record.mjs '${{ matrix.target }}' "$Stage\build-record.json" "qa-output\windows-${{ matrix.arch }}\data-installed-${{ matrix.arch }}\runtime-environment.json" $App "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe.sha256" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip.sha256"
+      - name: Build, verify, launch and mount-test macOS package
+        if: matrix.os == 'macos'
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.resolve-source.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+          APP_VERSION: ${{ needs.resolve-source.outputs.version }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+        run: |
+          set -euo pipefail
+          npm run build:mac
+          npm run verify:mac
+          bash scripts/create-dmg.sh
+          ARCH='${{ matrix.arch }}' bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app' 'qa-output/mac-${{ matrix.arch }}' "dist/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg"
+          stage='qa-output/artifacts/${{ matrix.target }}'
+          mkdir -p "$stage"
+          cp "dist/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg"* "$stage/"
+          node scripts/write-build-record.mjs '${{ matrix.target }}' "$stage/build-record.json" "qa-output/mac-${{ matrix.arch }}/data-legacy-248x274/runtime-environment.json" "qa-output/mac-${{ matrix.arch }}/installed/AI Balance Whale.app" "$stage/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg" "$stage/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg.sha256"
+      - name: Upload exact release candidate and redacted diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            qa-output/artifacts/${{ matrix.target }}/**
+            qa-output/mac-${{ matrix.arch }}/**
+            qa-output/windows-${{ matrix.arch }}/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  acceptance-gate:
+    name: acceptance-gate
+    if: always()
+    needs: [resolve-source, packaged]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-source.outputs.source_sha || github.sha }}
+          persist-credentials: false
+      - name: Require source lock and every architecture build
+        env:
+          SOURCE_RESULT: ${{ needs.resolve-source.result }}
+          BUILD_RESULT: ${{ needs.packaged.result }}
+        run: |
+          set -euo pipefail
+          printf 'resolve-source=%s\npackaged=%s\n' "$SOURCE_RESULT" "$BUILD_RESULT" | tee -a "$GITHUB_STEP_SUMMARY"
+          [[ "$SOURCE_RESULT" == success && "$BUILD_RESULT" == success ]]
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-release-*
+          path: release-inputs
+          merge-multiple: false
+      - name: Verify all four records, package hashes and source identity
+        run: node scripts/verify-release-set.mjs release-inputs '${{ needs.resolve-source.outputs.source_sha }}' '${{ needs.resolve-source.outputs.version }}'
+
+  publish:
+    name: publish-verified-cross-platform-prerelease
+    needs: [resolve-source, packaged, acceptance-gate]
+    if: needs.resolve-source.result == 'success' && needs.packaged.result == 'success' && needs.acceptance-gate.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-source.outputs.source_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.8.0'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-release-*
+          path: release-inputs
+          merge-multiple: false
+      - name: Reverify downloaded build bytes before staging Release
+        run: node scripts/verify-release-set.mjs release-inputs '${{ needs.resolve-source.outputs.source_sha }}' '${{ needs.resolve-source.outputs.version }}'
+      - name: Confirm or create only the exact source tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve-source.outputs.tag }}
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+          CREATE_TAG: ${{ needs.resolve-source.outputs.create_tag }}
+        run: |
+          set -euo pipefail
+          REMOTE="$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}")"
+          if [[ -n "$REMOTE" ]]; then
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            [[ "$(git rev-parse "$TAG^{commit}")" == "$SOURCE_SHA" ]] || { echo 'release tag points to a different commit'; exit 1; }
+          elif [[ "$CREATE_TAG" == true ]]; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$SOURCE_SHA" >/dev/null
+          else
+            echo 'tag disappeared before release staging' >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "release already exists for $TAG; refusing overwrite" >&2; exit 1; fi
+      - name: Create draft Release with the validated candidate assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve-source.outputs.tag }}
+          VERSION: ${{ needs.resolve-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+          PRERELEASE: ${{ needs.resolve-source.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          printf '%s\n' \
+            "AI Balance Whale $VERSION — Windows and macOS prerelease" \
+            "" \
+            "Source commit: $SOURCE_SHA" \
+            "" \
+            "Includes the quick-chat browser button, validated HTTPS service settings, local-file drag-and-drop into the operating-system share UI, and role-anchor-preserving resizing. Existing quota/auth and upstream widget interaction paths remain in place." \
+            "" \
+            "Targets: Windows x64 and ARM64; macOS Intel x64 and Apple Silicon ARM64. macOS App bundles are ad-hoc signed only and are not notarized. Windows installer is unsigned." \
+            "" \
+            "CI launches the packaged app on each native runner, exercises packaged renderer/native IPC input and same-process resize regressions, tests the Windows install/uninstall path and mounts each macOS DMG. OS-level pointer injection and actual Windows/macOS share-sheet delivery are not verified by headless CI; the share UI is user-mediated and the app does not report delivery success." \
+            > "$NOTES"
+          ASSETS=( $(find release-inputs -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.sha256' \) -print | sort) )
+          [[ "${#ASSETS[@]}" -eq 12 ]] || { echo "expected 12 per-artifact binary/sidecar files, got ${#ASSETS[@]}" >&2; exit 1; }
+          ASSETS+=(release-inputs/SHA256SUMS release-inputs/manifest.json)
+          if [[ "$PRERELEASE" == true ]]; then
+            gh release create "$TAG" --target "$SOURCE_SHA" --title "AI Balance Whale $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --prerelease --verify-tag "${ASSETS[@]}"
+          else
+            gh release create "$TAG" --target "$SOURCE_SHA" --title "AI Balance Whale $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --verify-tag "${ASSETS[@]}"
+          fi
+      - name: Download staged draft and byte-verify every uploaded asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve-source.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p uploaded-release
+          gh release download "$TAG" --dir uploaded-release
+          node scripts/verify-uploaded-release.mjs release-inputs uploaded-release
+      - name: Publish only after remote asset verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve-source.outputs.tag }}
+          PRERELEASE: ${{ needs.resolve-source.outputs.prerelease }}
+          SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          RELEASE_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .id)"
+          [[ -n "$RELEASE_ID" ]]
+          if [[ "$PRERELEASE" == true ]]; then PRE=true; else PRE=false; fi
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false -F "prerelease=$PRE" >/dev/null
+          RELEASE_URL="$(gh release view "$TAG" --json url --jq .url)"
+          printf 'Release: %s\nSource commit: %s\n' "$RELEASE_URL" "$SOURCE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
+          gh release view "$TAG" --json url,isDraft,isPrerelease,assets --jq '{url,isDraft,isPrerelease,assets:[.assets[]|{name,size,url}]}' | tee -a "$GITHUB_STEP_SUMMARY"

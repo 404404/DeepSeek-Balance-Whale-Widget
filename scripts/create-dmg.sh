@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-$ROOT/dist/AI Balance Whale.app}"
 VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}"
-OUTPUT="${2:-$ROOT/dist/AI-Balance-Whale-macos-${VERSION}-arm64.dmg}"
+ARCH="${ARCH:-arm64}"
+case "$ARCH" in x64|x86_64) ARCH=x64 ;; arm64|aarch64) ARCH=arm64 ;; *) echo "unsupported macOS arch: $ARCH" >&2; exit 2 ;; esac
+OUTPUT="${2:-$ROOT/dist/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-dmg.XXXXXX")"
 MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-mount.XXXXXX")"
@@ -33,8 +35,8 @@ if [[ "$ATTACHED" != 1 ]]; then
 fi
 [[ -d "$MOUNT/AI Balance Whale.app" ]] || { echo 'DMG missing App' >&2; exit 1; }
 [[ -L "$MOUNT/Applications" ]] || { echo 'DMG missing Applications shortcut' >&2; exit 1; }
-VERSION="$VERSION" bash scripts/verify-mac-app.sh "$MOUNT/AI Balance Whale.app"
+ARCH="$ARCH" VERSION="$VERSION" bash scripts/verify-mac-app.sh "$MOUNT/AI Balance Whale.app"
 hdiutil detach "$MOUNT" -quiet
 ATTACHED=0
-shasum -a 256 "$OUTPUT" | tee "${OUTPUT%.dmg}.sha256"
+shasum -a 256 "$OUTPUT" | tee "${OUTPUT}.sha256"
 printf 'created %s\n' "$OUTPUT"

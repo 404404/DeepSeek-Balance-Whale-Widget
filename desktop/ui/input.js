@@ -7,7 +7,7 @@
   let point = { x: -1, y: -1 }, heldPointer = null, releaseEpoch = 0, interactive = false, keyboardFocus = false, ready = false, lastStorage = '', surfaceExpanded = false, lastWidgetSize = '', lastHitRegion = '', lastSurfaceReason = 'none', lastDiagnosticKey = '';
   const standalone = bridge.standalone === true;
   const testMode = bridge.testMode === true;
-  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden])';
+  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-chat-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden])';
   // A visible hover button belongs to the compact widget hit area. It is not
   // an expanded surface: expanding the native window on hover creates a
   // resize -> coordinate -> hover feedback loop.
@@ -58,7 +58,7 @@
     const rect = pet.getBoundingClientRect();
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
     const margin = 4;
-    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-menu.dshwv-menu-open')].filter(el => {
+    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-chat-btn-visible,.dshwv-menu.dshwv-menu-open')].filter(el => {
       try {
         if (!visible(el)) return false;
         // The role image and the upstream SVG bubble deliberately use
@@ -84,13 +84,15 @@
     const rect = root.getBoundingClientRect();
     const width = Math.max(root.offsetWidth || 0, Math.abs(rect.width || 0));
     const height = Math.max(root.offsetHeight || 0, Math.abs(rect.height || 0));
-    const key = Math.round(width) + 'x' + Math.round(height);
+    const imageRect = pet?.getBoundingClientRect();
+    const anchorRatioX = imageRect && width > 0 ? Math.max(0, Math.min(1, ((imageRect.left + imageRect.right) / 2 - rect.left) / width)) : 0.70275;
+    const key = Math.round(width) + 'x' + Math.round(height) + ':' + Math.round(anchorRatioX * 10000);
     if (width <= 0 || height <= 0) return;
     if (key !== lastWidgetSize) {
       lastWidgetSize = key;
       const configuredScale = Number.parseFloat(getComputedStyle(root).getPropertyValue('--dshw-scale'));
       const requested = Number.isFinite(configuredScale) ? Math.max(122, Math.min(625, Math.round(250 * configuredScale))) : width;
-      bridge.widgetSize({ width, height, requestedWidth: requested, requestedHeight: requested });
+      bridge.widgetSize({ width, height, requestedWidth: requested, requestedHeight: requested, anchorRatioX });
     }
     reportHitRegion();
     if (testMode && (forceDiagnostic || key !== lastDiagnosticKey)) {
@@ -150,6 +152,7 @@
     reportHitRegion(true);
     request();
   });
+  window.addEventListener('whale-anchor-change', () => { lastWidgetSize = ''; reportWidgetSize(true); reportHitRegion(true); });
   if (standalone && bridge.onNativeWidgetSize) bridge.onNativeWidgetSize(value => {
     if (!value || !Number.isFinite(Number(value.width)) || !Number.isFinite(Number(value.height))) return;
     if (value.constrained) root.style.setProperty('--dshw-base', Math.min(Number(value.width), Number(value.height)) + 'px');

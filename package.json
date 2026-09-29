@@ -1,7 +1,7 @@
 {
   "name": "api-balance-whale",
-  "version": "0.2.0",
-  "description": "AI Balance Whale standalone macOS desktop widget, adapted from the upstream For-Codex Electron build.",
+  "version": "0.3.0-beta.1",
+  "description": "AI Balance Whale standalone cross-platform desktop widget, adapted from the upstream For-Codex Electron build.",
   "type": "module",
   "license": "MIT",
   "main": "desktop/main.cjs",
@@ -36,10 +36,12 @@
     "start": "npm run desktop",
     "desktop": "node scripts/control.mjs desktop",
     "desktop:mac": "electron --standalone desktop/main.cjs",
-    "check": "node --check desktop/main.cjs && node --check desktop/preload.cjs && node --check desktop/ui/client.js && node --check desktop/ui/input.js && node --check desktop/ui/render.js && node --check assets/whale-widget.js",
+    "check": "node --check desktop/main.cjs && node --check desktop/standalone-main.cjs && node --check desktop/follow-main.cjs && node --check desktop/preload.cjs && node --check desktop/native-share.cjs && node --check desktop/native-share-host.cjs && node --check desktop/quick-chat-config.cjs && node --check desktop/ui/client.js && node --check desktop/ui/input.js && node --check desktop/ui/render.js && node --check assets/whale-widget.js && node --check runtime/dispatcher.mjs && node --check runtime/bridge.mjs && node --check scripts/write-build-record.mjs && node --check scripts/verify-release-set.mjs && node --check scripts/verify-uploaded-release.mjs",
     "build:mac": "bash scripts/build-mac.sh",
     "verify:mac": "bash scripts/verify-mac-app.sh",
-    "test": "npm run check && node scripts/test-macos-interaction.mjs && node scripts/test-subscription-auth.mjs"
+    "build:windows:share": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-share.ps1",
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
+    "test": "npm run check && node scripts/test-macos-interaction.mjs && node scripts/test-quick-chat-share.mjs && node scripts/test-subscription-auth.mjs"
   },
   "devDependencies": {
     "@electron/asar": "3.2.18",

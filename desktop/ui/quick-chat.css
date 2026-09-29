@@ -1,0 +1,3 @@
+.chat-config-actions{display:flex;align-items:center;gap:10px;margin-top:12px}
+#chat-config-error{color:#a52828;font-size:11px;line-height:1.5}
+#chat-config-error:not([hidden]){display:block}
