@@ -69,8 +69,10 @@ for key in ('finderNativeDropValidated', 'physicalImeValidated', 'mousePassthrou
 expected = {
     'demo-controller-loaded-in-packaged-renderer',
     'hover-controls-above-settings-button',
+    'hover-hit-area-spans-controls-and-rises-above-chat',
     'settings-dialog-hides-hover-controls',
     'message-button-and-chat-panel-geometry',
+    'chat-open-keeps-window-origin-on-windows',
     'chat-button-does-not-activate-pet',
     'chat-surface-input-routing-settles',
     'ime-composition-and-shift-enter-do-not-submit',

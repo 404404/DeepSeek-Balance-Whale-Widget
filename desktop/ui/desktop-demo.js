@@ -108,7 +108,7 @@
     const rect = menuButton.getBoundingClientRect();
     const left = rect.left + (rect.width - 26) / 2;
     controls.style.left = `${Math.round(clamp(left, 4, Math.max(4, window.innerWidth - 30)))}px`;
-    controls.style.top = `${Math.round(clamp(rect.top - 50, 4, Math.max(4, window.innerHeight - 52)))}px`;
+    controls.style.top = `${Math.round(clamp(rect.top - 68, 4, Math.max(4, window.innerHeight - 70)))}px`;
   }
   function setOpen(element, open) {
     if (open) dialogOpen(element);

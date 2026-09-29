@@ -51,6 +51,7 @@ let inputEnabled = false;
 let keyboardFocus = false;
 let manuallyHidden = false;
 let surfaceExpanded = false;
+let surfaceKeepsFramePosition = false;
 let surfaceGeometryPending = false;
 let surfaceGeometryEpoch = 0;
 let pendingSurface = null;
@@ -157,7 +158,11 @@ function readWindowState() { return read(windowStateFile, {}); }
 let alwaysOnTop = readWindowState().alwaysOnTop === true;
 function persistWindowState() {
   if (!window || window.isDestroyed()) return;
-  try { save(windowStateFile, { version: 1, frame: window.getBounds(), alwaysOnTop, updatedAt: new Date().toISOString() }); } catch {}
+  try {
+    const frame = window.getBounds();
+    const [width, height] = surfaceExpanded && surfaceKeepsFramePosition ? compactWidgetDimensions() : [frame.width, frame.height];
+    save(windowStateFile, { version: 1, frame: { ...frame, width, height }, alwaysOnTop, updatedAt: new Date().toISOString() });
+  } catch {}
 }
 function scheduleFrameSave() {
   if (!window || window.isDestroyed()) return;
@@ -397,8 +402,11 @@ async function runDesktopDemoSmokeTest() {
     await interactionRendererEval('window.__desktopDemoSmoke.setHover(true); true');
     await interactionDelay(100);
     const hoverControls = await interactionRendererEval(`(() => { const root=document.querySelector('.desktop-demo-controls'); const settings=document.querySelector('.dshwv-menu-btn').getBoundingClientRect(); const buttons=[...root.querySelectorAll('.desktop-demo-button')].map(button=>{const r=button.getBoundingClientRect();return {visible:button.classList.contains('is-visible'),left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height};}); return {open:root.open,settings:{left:settings.left,top:settings.top,right:settings.right,bottom:settings.bottom},buttons}; })()`);
-    const controlsAboveSettings = hoverControls?.open === true && hoverControls.buttons?.length === 2 && hoverControls.buttons.every(button => button.visible && button.width >= 24 && button.height >= 24) && Math.abs((hoverControls.buttons[0].left + hoverControls.buttons[0].right) - (hoverControls.settings.left + hoverControls.settings.right)) <= 2 && Math.abs(hoverControls.buttons[0].left - hoverControls.buttons[1].left) <= 1 && Math.abs(hoverControls.buttons[1].top - hoverControls.buttons[0].bottom) <= 1 && hoverControls.buttons[1].bottom >= hoverControls.settings.top && hoverControls.buttons[1].bottom <= hoverControls.settings.top + 3;
+    const controlsAboveSettings = hoverControls?.open === true && hoverControls.buttons?.length === 2 && hoverControls.buttons.every(button => button.visible && button.width >= 24 && button.height >= 24) && Math.abs((hoverControls.buttons[0].left + hoverControls.buttons[0].right) - (hoverControls.settings.left + hoverControls.settings.right)) <= 2 && Math.abs(hoverControls.buttons[0].left - hoverControls.buttons[1].left) <= 1;
     record('hover-controls-above-settings-button', controlsAboveSettings, hoverControls);
+    const hitArea = await interactionRendererEval(`(() => { const root=document.querySelector('.desktop-demo-controls'); const box=root.getBoundingClientRect(); const buttons=[...root.querySelectorAll('.desktop-demo-button')].map(button=>button.getBoundingClientRect()); const settings=document.querySelector('.dshwv-menu-btn').getBoundingClientRect(); return {pointerEvents:getComputedStyle(root).pointerEvents,top:box.top,bottom:box.bottom,height:box.height,chat:buttons[0] && {top:buttons[0].top,bottom:buttons[0].bottom},images:buttons[1] && {top:buttons[1].top,bottom:buttons[1].bottom},settings:{top:settings.top}}; })()`);
+    const hitAreaSpansControls = hoverControls?.open === true && hitArea?.pointerEvents === 'auto' && hitArea.height >= 69 && hitArea.top <= hitArea.chat.top - 7 && hitArea.bottom >= hitArea.settings.top + 1 && Math.abs((hitArea.images.top - hitArea.chat.bottom) - 4) <= 1 && Math.abs((hitArea.settings.top - hitArea.images.bottom) - 4) <= 1;
+    record('hover-hit-area-spans-controls-and-rises-above-chat', hitAreaSpansControls, hitArea);
     await interactionRendererEval('document.querySelector("#settings-dialog").showModal(); true');
     await interactionDelay(120);
     const settingsControls = await interactionRendererEval(`(() => { const dialog=document.querySelector('#settings-dialog'); const root=document.querySelector('.desktop-demo-controls'); return {settingsOpen:dialog.open,controlsOpen:root.open,buttons:[...root.querySelectorAll('.desktop-demo-button')].map(button=>button.classList.contains('is-visible'))}; })()`);
@@ -409,6 +417,7 @@ async function runDesktopDemoSmokeTest() {
     await interactionRendererEval('window.__desktopDemoSmoke.setHover(true); true');
     await interactionDelay(100);
     const petEpochBeforeChat = await interactionRendererEval("window.__whaleRenderTest?.status()?.epoch ?? null");
+    const frameBeforeChat = interactionFrame();
     const chatButtonPosition = await interactionRendererEval(`(() => { const r=document.querySelector('[data-desktop-demo-control="chat"]').getBoundingClientRect(); return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}; })()`);
     if (!chatButtonPosition) throw new Error('chat shortcut button geometry is missing');
     window.webContents.sendInputEvent({ type: 'mouseMove', ...chatButtonPosition });
@@ -418,6 +427,9 @@ async function runDesktopDemoSmokeTest() {
     const chatOpen = await interactionRendererEval(`(() => { const buttons=[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
     const chatFits = chatOpen?.panel?.open === true && chatOpen.buttons[0] === true && chatOpen.panel.left >= -1 && chatOpen.panel.top >= -1 && chatOpen.panel.right <= chatOpen.viewport.width + 1 && chatOpen.panel.bottom <= chatOpen.viewport.height + 1;
     record('message-button-and-chat-panel-geometry', chatFits, chatOpen);
+    const frameAfterChat = interactionFrame();
+    const chatKeepsWindowOrigin = process.platform !== 'win32' || (!!frameBeforeChat && !!frameAfterChat && frameBeforeChat.x === frameAfterChat.x && frameBeforeChat.y === frameAfterChat.y);
+    record('chat-open-keeps-window-origin-on-windows', chatKeepsWindowOrigin, { before: frameBeforeChat, after: frameAfterChat, platform: process.platform });
     const petEpochAfterChat = await interactionRendererEval("window.__whaleRenderTest?.status()?.epoch ?? null");
     record('chat-button-does-not-activate-pet', petEpochBeforeChat !== null && petEpochBeforeChat === petEpochAfterChat, { before: petEpochBeforeChat, after: petEpochAfterChat });
     const routingAfterChat = read(path.join(dataDir, 'input-routing.json'), {});
@@ -517,6 +529,7 @@ function restoreWidget() {
   const frame = defaultFrame();
   if (window && !window.isDestroyed()) {
     surfaceExpanded = false;
+    surfaceKeepsFramePosition = false;
     surfaceGeometryEpoch += 1;
     surfaceGeometryPending = false;
     surfaceReason = 'restore-widget';
@@ -566,6 +579,23 @@ function resizeKeepingBottomRight(width, height) {
   updateNativeInputRouting();
   return target;
 }
+function resizeKeepingTopLeft(width, height) {
+  if (!window || window.isDestroyed() || nativeDrag) return null;
+  const current = window.getBounds();
+  const area = workAreaFor(current);
+  const target = {
+    x: current.x,
+    y: current.y,
+    width: Math.max(MIN_WIDGET_SIZE, Math.min(Math.round(width), area.width)),
+    height: Math.max(MIN_WIDGET_SIZE, Math.min(Math.round(height), area.height)),
+  };
+  if (target.width === current.width && target.height === current.height) return target;
+  window.setBounds(target);
+  scheduleFrameSave();
+  sendCursor(true);
+  updateNativeInputRouting();
+  return target;
+}
 function requestRendererLayout() {
   if (window && !window.isDestroyed() && rendererReady) {
     try { window.webContents.send('whale-layout-request', { surfaceGeometryEpoch }); } catch {}
@@ -602,20 +632,29 @@ function applySurfaceGeometry(expanded) {
   surfaceGeometryPending = true;
   setInputEnabled(true, 'surface-geometry-transition');
   if (expanded) {
-    const before = window.getBounds();
-    const screenAnchor = { right: before.x + before.width, bottom: before.y + before.height };
-    const target = resizeKeepingBottomRight(760, 700) || window.getBounds();
-    const [width, height] = compactWidgetDimensions();
-    // The role is laid out at the compact root's bottom/right. Preserve its
-    // pre-expansion screen anchor when the expanded frame fits; when the
-    // display edge clamps that frame, clamp the local offset to the feasible
-    // part of the new content instead of moving the role to the new corner.
-    const offset = surfaceRootOffset(target, width, height, screenAnchor);
-    sendNativeRootOffset(offset.left, offset.top);
+    surfaceKeepsFramePosition = process.platform === 'win32';
+    if (surfaceKeepsFramePosition) {
+      // On Windows, changing the native frame origin and then correcting the
+      // renderer root creates a visible one-frame pet jump. Grow down/right
+      // from the existing origin so the pet stays at the same screen point.
+      resizeKeepingTopLeft(760, 700);
+      sendNativeRootOffset(0, 0);
+    } else {
+      const before = window.getBounds();
+      const screenAnchor = { right: before.x + before.width, bottom: before.y + before.height };
+      const target = resizeKeepingBottomRight(760, 700) || window.getBounds();
+      const [width, height] = compactWidgetDimensions();
+      // Preserve the role's screen-space bottom/right anchor on platforms
+      // where the native frame can move without a visible intermediate frame.
+      const offset = surfaceRootOffset(target, width, height, screenAnchor);
+      sendNativeRootOffset(offset.left, offset.top);
+    }
   } else {
     const [width, height] = compactWidgetDimensions();
-    resizeKeepingBottomRight(width, height);
+    if (surfaceKeepsFramePosition) resizeKeepingTopLeft(width, height);
+    else resizeKeepingBottomRight(width, height);
     sendNativeRootOffset(0, 0);
+    surfaceKeepsFramePosition = false;
   }
   requestRendererLayout();
 }
@@ -857,7 +896,9 @@ if (!lock) {
         surfaceExpanded = false;
         surfaceReason = 'navigation-start';
         const [width, height] = compactWidgetDimensions();
-        resizeKeepingBottomRight(width, height);
+        if (surfaceKeepsFramePosition) resizeKeepingTopLeft(width, height);
+        else resizeKeepingBottomRight(width, height);
+        surfaceKeepsFramePosition = false;
       }
       setInputEnabled(false, 'navigation-start');
       setKeyboardFocus(false);
