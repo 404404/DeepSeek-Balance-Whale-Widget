@@ -123,12 +123,14 @@ jobs:
       - name: Packaged App acceptance
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           npm run verify:mac
           bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app' qa-output/release-smoke
       - name: Create and validate DMG
         env:
           VERSION: ${{ steps.release.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
         run: bash scripts/create-dmg.sh
       - name: Create dispatch tag at the checked-out commit
         if: github.event_name == 'workflow_dispatch'
