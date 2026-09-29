@@ -69,8 +69,9 @@ try {
   await fs.truncate(large, 32 * 1024 * 1024);
   await fs.mkdir(folder);
   const checked = await share.validateDroppedPaths([first, second]);
+  const canonicalPaths = [await fs.realpath(first), await fs.realpath(second)];
   assert.equal(checked.ok, true);
-  assert.deepEqual(checked.files.map(file => file.path), [first, second]);
+  assert.deepEqual(checked.files.map(file => file.path), canonicalPaths, 'validated paths are canonicalized for the current platform');
   assert.equal((await share.validateDroppedPaths([folder])).code, 'unsupported-directory');
   assert.equal((await share.validateDroppedPaths([path.join(temp, 'missing.txt')])).code, 'missing-file');
   assert.equal((await share.validateDroppedPaths([])).code, 'no-files');
@@ -95,7 +96,7 @@ try {
   });
   const macResult = await macHost.share([first, second]);
   assert.equal(macResult.status, 'opened');
-  assert.deepEqual(fakeMenu.options.filePaths, [first, second]);
+  assert.deepEqual(fakeMenu.options.filePaths, canonicalPaths);
   assert.deepEqual({ x: macPopup.x, y: macPopup.y }, { x: 25, y: 40 });
   assert.deepEqual(macEvents, [['active', true], ['opened', 2]]);
   macPopup.callback();
@@ -118,7 +119,7 @@ try {
       assert.equal(file, helper);
       assert.equal(options.shell, false);
       assert.equal(args[0], '1234');
-      assert.deepEqual(args.slice(1), [first, second], 'Unicode/space paths remain separate argv values');
+      assert.deepEqual(args.slice(1), canonicalPaths, 'Unicode/space paths remain separate argv values');
       child = new EventEmitter();
       child.stdout = new EventEmitter();
       child.exitCode = null;
