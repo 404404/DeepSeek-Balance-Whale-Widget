@@ -25,8 +25,10 @@ function Invoke-PackagedCase([string]$Label, [double]$Scale, [bool]$Legacy, [str
   $Info.RedirectStandardOutput = $true
   $Info.RedirectStandardError = $true
   foreach ($Arg in @('--standalone', '--whale-render-test', '--whale-interaction-test', "--whale-data=$Data")) { [void]$Info.ArgumentList.Add($Arg) }
-  $Info.Environment['WHALE_DESKTOP_TEST'] = '1'
   $Info.Environment['WHALE_HOME'] = $Data
+  $CodeHome = Join-Path $Data 'codex-home'
+  New-Item -ItemType Directory -Force -Path $CodeHome | Out-Null
+  $Info.Environment['CODEX_HOME'] = $CodeHome
   $Info.Environment['ELECTRON_ENABLE_LOGGING'] = '1'
   $Process = [Diagnostics.Process]::new()
   $Process.StartInfo = $Info

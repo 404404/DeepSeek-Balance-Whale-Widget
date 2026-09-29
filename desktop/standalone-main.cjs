@@ -478,7 +478,7 @@ async function openWebLink(value, gestureRequired = true) {
   const url = externalWebUrl(target);
   if (!url) return false;
   try {
-    if (fixture) fixtureOpenedLinks.push(url);
+    if (fixture || interactionTest) fixtureOpenedLinks.push(url);
     else await shell.openExternal(url);
     return true;
   } catch { return false; }
@@ -493,7 +493,7 @@ async function openQuickChat(event, input) {
   const target = QuickChatConfig.resolveChatConfig(config);
   if (!target) return { ok: false, error: '快速聊天网址无效，请在设置中填写 HTTPS 地址' };
   try {
-    if (fixture) fixtureOpenedLinks.push(target.url);
+    if (fixture || interactionTest) fixtureOpenedLinks.push(target.url);
     else await shell.openExternal(target.url);
     return { ok: true, provider: target.provider };
   } catch { return { ok: false, error: '系统默认浏览器无法打开该网址，请稍后重试' }; }
@@ -688,7 +688,7 @@ function handleDisplayChange() {
 }
 function importLegacyFiles() {
   const marker = path.join(dataDir, 'legacy-files-imported.json');
-  if (fs.existsSync(marker) || fixture) return;
+  if (fs.existsSync(marker) || fixture || layoutTest) return;
   const candidates = [
     path.join(os.homedir(), '.codex', 'whale-widget'),
     path.join(os.homedir(), '.codex', 'whale-widget', 'profiles', 'web'),
