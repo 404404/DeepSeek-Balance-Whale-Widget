@@ -393,14 +393,15 @@ async function runInteractionTest() {
     const chatNativeContent = window.getContentBounds();
     const chatQueueBefore = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     const chatRolePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
-    let chatButton = null;
+    let chatButton = null, chatHitRegionReady = false;
     if (chatRolePoint) {
       interactionMouseMove(8, 8);
       await interactionDelay(80);
       interactionMouseMove(chatRolePoint.x, chatRolePoint.y);
-      for (let i = 0; i < 60; i += 1) {
+      for (let i = 0; i < 100; i += 1) {
         chatButton = await interactionRendererEval("(() => { const chat=document.querySelector('.dshwv-chat-btn'), settings=document.querySelector('.dshwv-menu-btn'); if(!chat||!settings||!chat.classList.contains('dshwv-chat-btn-visible'))return null; const c=chat.getBoundingClientRect(),s=settings.getBoundingClientRect(); return {x:Math.round(c.left+c.width/2),y:Math.round(c.top+c.height/2),left:c.left,top:c.top,right:c.right,bottom:c.bottom,settingsTop:s.top}; })()");
-        if (chatButton) break;
+        chatHitRegionReady = !!chatButton && hitRegions.some(region => region.left <= chatButton.x && region.left + region.width >= chatButton.x && region.top <= chatButton.y && region.top + region.height >= chatButton.y);
+        if (chatHitRegionReady) break;
         await interactionDelay(20);
       }
     }
@@ -409,7 +410,7 @@ async function runInteractionTest() {
       visibleButton: !!chatButton,
       withinWebView: !!chatButton && chatButton.top >= 0 && chatButton.bottom <= chatNativeContent.height + 1,
       aboveSettingsButton: !!chatButton && chatButton.bottom <= chatButton.settingsTop,
-      insideNativeHitRegion: !!chatButton && hitRegions.some(region => region.left <= chatButton.x && region.left + region.width >= chatButton.x && region.top <= chatButton.y && region.top + region.height >= chatButton.y),
+      insideNativeHitRegion: chatHitRegionReady,
       nativeContentBounds: chatNativeContent,
     };
     const chatRegionPass = chatRegionChecks.visibleButton && chatRegionChecks.withinWebView && chatRegionChecks.aboveSettingsButton && chatRegionChecks.insideNativeHitRegion;

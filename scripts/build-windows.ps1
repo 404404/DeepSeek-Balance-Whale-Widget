@@ -17,14 +17,16 @@ $AppDir = Join-Path $OutputDir "AI Balance Whale-win32-$Arch"
 $PackagerScratch = Join-Path $OutputDir '.packager'
 $PortableZip = Join-Path $OutputDir "AI-Balance-Whale-windows-$Arch-v$Version-portable.zip"
 $Installer = Join-Path $OutputDir "AI-Balance-Whale-windows-$Arch-v$Version-setup.exe"
-$Npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
-if (-not $Npx) { throw 'npx.cmd is unavailable' }
+$Node = Get-Command node.exe -ErrorAction SilentlyContinue
+if (-not $Node) { throw 'node.exe is unavailable' }
+$PackagerCli = Join-Path $Root 'node_modules\electron-packager\bin\electron-packager.js'
+if (-not (Test-Path -LiteralPath $PackagerCli -PathType Leaf)) { throw "Locked electron-packager CLI is missing: $PackagerCli" }
 $Iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
 if (-not $Iscc) { throw 'ISCC.exe is required (install Inno Setup on the build runner)' }
 if (-not (Test-Path -LiteralPath $Helper -PathType Leaf)) { throw "Compiled native share helper missing: $Helper" }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 if (Test-Path -LiteralPath $PackagerScratch) { Remove-Item -LiteralPath $PackagerScratch -Recurse -Force }
-& $Npx.Source electron-packager . 'AI Balance Whale' `
+& $Node.Source $PackagerCli . 'AI Balance Whale' `
   "--platform=win32" "--arch=$Arch" "--out=$PackagerScratch" '--overwrite' '--asar' '--prune=true' `
   "--app-version=$Version" "--build-version=$BuildNumber" '--executable-name=AI Balance Whale' `
   "--extra-resource=$Helper" `
