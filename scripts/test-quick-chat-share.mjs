@@ -105,6 +105,8 @@ try {
   const helper = path.join(temp, 'whale-share.exe');
   await fs.writeFile(helper, 'test-helper-placeholder');
   let child;
+  let resolveSpawned;
+  const spawned = new Promise(resolve => { resolveSpawned = resolve; });
   const windowsEvents = [];
   let windowsOpened = 0;
   const windowsHost = createNativeShareHost({
@@ -121,11 +123,12 @@ try {
       child.stdout = new EventEmitter();
       child.exitCode = null;
       child.kill = () => { child.exitCode = 0; child.emit('exit', 0); return true; };
+      resolveSpawned(child);
       return child;
     },
   });
   const pendingShare = windowsHost.share([first, second]);
-  await new Promise(resolve => setImmediate(resolve));
+  child = await Promise.race([spawned, new Promise((_, reject) => setTimeout(() => reject(new Error('Windows share host did not start')), 2000))]);
   child.stdout.emit('data', Buffer.from('{"status":"open'));
   child.stdout.emit('data', Buffer.from('ed"}\n'));
   child.stdout.emit('data', Buffer.from('{"status":"info"}\n'));
