@@ -68,10 +68,16 @@ for key in ('finderNativeDropValidated', 'physicalImeValidated', 'mousePassthrou
         raise SystemExit(f'desktop-demo smoke must not claim physical OS validation for {key}: {evidence}')
 expected = {
     'demo-controller-loaded-in-packaged-renderer',
+    'hover-runway-is-reported-before-shortcut-show',
+    'redline-runway-reveals-controls-on-hover',
     'hover-controls-above-settings-button',
     'hover-hit-area-spans-controls-and-rises-above-chat',
     'settings-dialog-hides-hover-controls',
+    'snap-settings-controls-are-native-hit-regions',
+    'snap-settings-radio-and-confirm-save',
+    'flip-follows-monitor-midline-and-returns',
     'message-button-and-chat-panel-geometry',
+    'chat-panel-stays-inside-monitor-work-area',
     'chat-open-keeps-window-origin-on-windows',
     'chat-button-does-not-activate-pet',
     'chat-surface-input-routing-settles',

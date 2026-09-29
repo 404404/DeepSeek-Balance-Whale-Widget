@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('whaleDesktop', {
   dragStart: point => ipcRenderer.send('whale-drag-start', { x: Number(point?.x), y: Number(point?.y) }),
   dragMove: point => ipcRenderer.send('whale-drag-move', { x: Number(point?.x), y: Number(point?.y) }),
   dragEnd: () => ipcRenderer.send('whale-drag-end'),
-  onNativeDragMoved: callback => ipcRenderer.on('whale-native-drag-moved', () => callback()),
+  screenGeometry: () => ipcRenderer.sendSync('whale-screen-geometry'),
+  onNativeDragMoved: callback => ipcRenderer.on('whale-native-drag-moved', (_event, geometry) => callback(geometry)),
 });
 ipcRenderer.on('whale-settings', () => window.dispatchEvent(new Event('whale-open-settings')));

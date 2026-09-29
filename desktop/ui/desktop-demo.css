@@ -42,6 +42,14 @@
 .desktop-demo-controls [data-desktop-demo-control="chat"] { top: 8px; }
 .desktop-demo-controls [data-desktop-demo-control="images"] { top: 38px; }
 .desktop-demo-controls button.is-visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.desktop-demo-hover-runway {
+  position: fixed;
+  height: 26px;
+  opacity: .001;
+  pointer-events: none;
+  background: transparent;
+  z-index: 2147482999;
+}
 
 .desktop-demo-panel {
   position: fixed;

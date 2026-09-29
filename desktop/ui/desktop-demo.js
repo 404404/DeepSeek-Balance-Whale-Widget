@@ -31,6 +31,10 @@
   controls.setAttribute('aria-label', '小鲸鱼快捷操作');
   controls.innerHTML = '<button type="button" class="desktop-demo-button" data-desktop-demo-control="chat" aria-label="快速聊天" title="打开快速聊天"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.8A2.8 2.8 0 0 1 6.8 3h10.4A2.8 2.8 0 0 1 20 5.8v7.4a2.8 2.8 0 0 1-2.8 2.8h-5.5l-4.9 4v-4H6.8A2.8 2.8 0 0 1 4 13.2z"/><path d="M8 8h8M8 11h5"/></svg></button><button type="button" class="desktop-demo-button" data-desktop-demo-control="images" aria-label="设置交互状态图片" title="设置人偶交互状态图片"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="3"/><circle cx="9" cy="9" r="1.4"/><path d="m5 17 5-5 3.5 3 2.5-2 3 3"/></svg></button>';
   document.body.appendChild(controls);
+  const hoverRunway = document.createElement('div');
+  hoverRunway.className = 'desktop-demo-hover-runway';
+  hoverRunway.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(hoverRunway);
 
   const chat = panel('快速聊天',
     '<div class="desktop-demo-banner">演示模式 · 本地模拟回复，不连接真实模型，也不会上传附件。</div><div class="desktop-demo-messages" data-desktop-demo-part="messages" role="log" aria-live="polite"><div class="desktop-demo-empty">发一条消息开始演示。Enter 发送，Shift+Enter 换行。</div></div><div class="desktop-demo-divider"></div><div class="desktop-demo-compose"><div class="desktop-demo-file-list" data-desktop-demo-part="attachments" hidden></div><div class="desktop-demo-model-row"><span>模型</span><select data-desktop-demo-part="model" aria-label="演示模型"><option value="fast">快速对话（演示）</option><option value="deep">深度思考（演示）</option></select><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="open-images" title="设置人偶交互状态图片">交互图片</button></div><div class="desktop-demo-attach-line"><button type="button" class="desktop-demo-quiet-btn" data-desktop-demo-action="pick-files">＋ 添加文件</button><span class="desktop-demo-attach-note">最多 20 个 · 仅本地展示</span></div><div class="desktop-demo-input-row"><textarea data-desktop-demo-part="draft" rows="2" placeholder="输入消息…" aria-label="聊天消息"></textarea><button type="button" class="desktop-demo-primary-btn desktop-demo-send" data-desktop-demo-action="send">发送</button></div><div class="desktop-demo-notice" data-desktop-demo-part="chat-notice" aria-live="polite"></div></div>', 'chat');
@@ -104,11 +108,20 @@
     element.style.top = `${Math.round(clamp(top, 8, Math.max(8, window.innerHeight - height - 8)))}px`;
   }
   function placeControls() {
-    if (!controls.open || !menuButton) return;
+    if (!menuButton) return;
     const rect = menuButton.getBoundingClientRect();
+    const rootRect = root?.getBoundingClientRect();
+    const controlsTop = clamp(rect.top - 68, 4, Math.max(4, window.innerHeight - 70));
     const left = rect.left + (rect.width - 26) / 2;
-    controls.style.left = `${Math.round(clamp(left, 4, Math.max(4, window.innerWidth - 30)))}px`;
-    controls.style.top = `${Math.round(clamp(rect.top - 68, 4, Math.max(4, window.innerHeight - 70)))}px`;
+    if (controls.open) {
+      controls.style.left = `${Math.round(clamp(left, 4, Math.max(4, window.innerWidth - 30)))}px`;
+      controls.style.top = `${Math.round(controlsTop)}px`;
+    }
+    const runwayLeft = rootRect?.left ?? 0;
+    const runwayWidth = rootRect?.width ?? window.innerWidth;
+    hoverRunway.style.left = `${Math.round(clamp(runwayLeft, 0, Math.max(0, window.innerWidth - 1)))}px`;
+    hoverRunway.style.top = `${Math.round(clamp(controlsTop + 8, 0, Math.max(0, window.innerHeight - 26)))}px`;
+    hoverRunway.style.width = `${Math.max(1, Math.min(runwayWidth, window.innerWidth - Math.max(0, runwayLeft)))}px`;
   }
   function setOpen(element, open) {
     if (open) dialogOpen(element);
@@ -527,6 +540,7 @@
     new MutationObserver(() => render(model.snapshot())).observe(menuButton, { attributes: true, attributeFilter: ['class', 'style'] });
     menuButton.addEventListener('click', () => render(model.snapshot()));
   }
+  if (root && typeof ResizeObserver === 'function') new ResizeObserver(placeControls).observe(root);
   if (settingsDialog) new MutationObserver(() => render(model.snapshot())).observe(settingsDialog, { attributes: true, attributeFilter: ['open'] });
   window.addEventListener('resize', () => render(model.snapshot()));
   window.addEventListener('whale-native-root-offset', () => render(model.snapshot()));

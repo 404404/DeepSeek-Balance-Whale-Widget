@@ -12,6 +12,10 @@
     var CLICK_SQ = 9;
     var REFRESH_MS = 60000;
     var standaloneDesktop = !!(window.whaleDesktop && window.whaleDesktop.standalone);
+    var desktopScreen = null;
+    if (standaloneDesktop && window.whaleDesktop.screenGeometry) {
+      try { desktopScreen = window.whaleDesktop.screenGeometry(); } catch (err) {}
+    }
 
 
     var BUBBLE_MS = 5000;
@@ -2819,7 +2823,7 @@
           cfg.px.T = 0;
           cfg.px.R = 80;
           cfg.px.B = 80;
-          cfg.px.F = Math.round(Math.max(1, viewport().w) / 2);
+          cfg.px.F = Math.round(Math.max(1, snapViewport().w) / 2);
         }
       } catch (err) {}
     }
@@ -2827,14 +2831,14 @@
       try {
         if (!snapEdit || snapEdit.mode === 'off') return;
         var m = snapEdit.mode;
-        var vp = viewport();
+        var vp = snapViewport();
         var set = m === 'px' ? snapEdit.px : snapEdit.ratio;
         var clamped = clampSnapKey(m, key, val, vp);
         set[key] = Math.max(0, Math.round(clamped));
       } catch (err) {}
     }
     function snapPvSize() {
-      var vp = viewport();
+      var vp = snapViewport();
       var maxW = 210, maxH = 190, minSide = 56;
       var ar = Math.max(0.05, vp.w / vp.h);
       var w, h;
@@ -2853,7 +2857,7 @@
       };
     }
     function snapFrac() {
-      var vp = viewport();
+      var vp = snapViewport();
       var f = {
         Lf: 0,
         Tf: 0,
@@ -3027,7 +3031,7 @@
           e.stopPropagation();
         } catch (err) {}
         if (!snapEdit || snapEdit.mode === 'off') return;
-        var vp = viewport();
+        var vp = snapViewport();
         var axis = horizontal ? vp.h : vp.w;
         var domain = snapEdit.mode === 'px' ? axis : 100;
         var set = snapEdit.mode === 'px' ? snapEdit.px : snapEdit.ratio;
@@ -3091,7 +3095,7 @@
             T: 0,
             R: 80,
             B: 80,
-            F: Math.round(Math.max(1, viewport().w) / 2)
+            F: Math.round(Math.max(1, snapViewport().w) / 2)
           };
         }
         renderSnapModes();
@@ -7844,7 +7848,7 @@
       flip: false
     };
     var SNAP_KEY = 'dshw-snap';
-    var SNAP_VER = 3;
+    var SNAP_VER = 4;
     var SNAP_DEFAULTS = {
       mode: 'ratio',
       ratio: {
@@ -7907,7 +7911,7 @@
       try {
         var m = mode || cfg.mode;
         if (m === 'off') return;
-        var vp = viewport();
+        var vp = snapViewport();
         if (m === 'px') {
           var w = Math.max(1, vp.w), h = Math.max(1, vp.h);
           if (!(cfg.px.F >= 0)) {
@@ -7943,7 +7947,7 @@
         var raw = localStorage.getItem(SNAP_KEY);
         if (raw) {
           var d = JSON.parse(raw);
-          if (d && d.v === SNAP_VER) {
+          if (d && d.v >= 3 && d.v <= SNAP_VER) {
             if (d.mode === 'ratio' || d.mode === 'px' || d.mode === 'off') snapConfig.mode = d.mode;
             var keys = ['L', 'T', 'R', 'B', 'F'];
             var i, k;
@@ -7953,7 +7957,10 @@
             }
             if (d.px) for (i = 0; i < keys.length; i++) {
               k = keys[i];
-              if (typeof d.px[k] === 'number' && isFinite(d.px[k])) snapConfig.px[k] = d.px[k];
+              // Older absolute flip lines were measured against the compact
+              // Electron window (about 250px), so migrate them to the current
+              // monitor midpoint while preserving the other pixel thresholds.
+              if (typeof d.px[k] === 'number' && isFinite(d.px[k]) && !(k === 'F' && d.v < SNAP_VER)) snapConfig.px[k] = d.px[k];
             }
           }
         }
@@ -7974,8 +7981,10 @@
 
     var drag = null;
     if (window.whaleDesktop && window.whaleDesktop.onNativeDragMoved) {
-      window.whaleDesktop.onNativeDragMoved(function () {
+      window.whaleDesktop.onNativeDragMoved(function (geometry) {
+        if (geometry && geometry.workArea && geometry.frame) desktopScreen = geometry;
         if (drag && drag.active) drag.moved = true;
+        if (standaloneDesktop) refreshFlip();
       });
     }
 
@@ -9048,6 +9057,25 @@
         h: window.innerHeight || document.documentElement.clientHeight || 800
       };
     }
+    function snapViewport() {
+      if (standaloneDesktop && desktopScreen && desktopScreen.workArea) {
+        return { w: desktopScreen.workArea.width, h: desktopScreen.workArea.height };
+      }
+      return viewport();
+    }
+    function snapScreenOrigin() {
+      if (standaloneDesktop && desktopScreen && desktopScreen.workArea && desktopScreen.frame) {
+        return { x: desktopScreen.workArea.x - desktopScreen.frame.x, y: desktopScreen.workArea.y - desktopScreen.frame.y };
+      }
+      return { x: 0, y: 0 };
+    }
+    function refreshDesktopScreenGeometry() {
+      if (!standaloneDesktop || !window.whaleDesktop.screenGeometry) return;
+      try {
+        var next = window.whaleDesktop.screenGeometry();
+        if (next && next.workArea && next.frame) desktopScreen = next;
+      } catch (err) {}
+    }
     function rightGap() {
       if (!scrollGapOn) return 0;
       return scrollGapPx > 0 ? scrollGapPx : 0;
@@ -9106,28 +9134,29 @@
       refreshFlip();
     }
     function snapBounds(vp) {
+      var origin = snapScreenOrigin();
       var b = {
-        L: 0,
-        T: 0,
-        R: vp.w,
-        B: vp.h,
-        F: vp.w / 2
+        L: origin.x,
+        T: origin.y,
+        R: origin.x + vp.w,
+        B: origin.y + vp.h,
+        F: origin.x + vp.w / 2
       };
       try {
         var cfg = snapConfig;
         if (!cfg || cfg.mode === 'off') return b;
         if (cfg.mode === 'px') {
-          b.L = cfg.px.L;
-          b.T = cfg.px.T;
-          b.R = vp.w - cfg.px.R;
-          b.B = vp.h - cfg.px.B;
-          b.F = cfg.px.F;
+          b.L = origin.x + cfg.px.L;
+          b.T = origin.y + cfg.px.T;
+          b.R = origin.x + vp.w - cfg.px.R;
+          b.B = origin.y + vp.h - cfg.px.B;
+          b.F = origin.x + cfg.px.F;
         } else {
-          b.L = vp.w * cfg.ratio.L / 100;
-          b.T = vp.h * cfg.ratio.T / 100;
-          b.R = vp.w * (100 - cfg.ratio.R) / 100;
-          b.B = vp.h * (100 - cfg.ratio.B) / 100;
-          b.F = vp.w * cfg.ratio.F / 100;
+          b.L = origin.x + vp.w * cfg.ratio.L / 100;
+          b.T = origin.y + vp.h * cfg.ratio.T / 100;
+          b.R = origin.x + vp.w * (100 - cfg.ratio.R) / 100;
+          b.B = origin.y + vp.h * (100 - cfg.ratio.B) / 100;
+          b.F = origin.x + vp.w * cfg.ratio.F / 100;
         }
       } catch (err) {}
       return b;
@@ -9150,7 +9179,15 @@
     }
     function refreshFlip() {
       try {
-        if (state.h === 'left') {
+        if (standaloneDesktop) {
+          if (!snapConfig || snapConfig.mode === 'off') {
+            state.flip = false;
+          } else {
+            var rect = whaleLayoutRect();
+            var vp = snapViewport();
+            state.flip = rect.left + rect.width / 2 < snapBounds(vp).F;
+          }
+        } else if (state.h === 'left') {
           state.flip = true;
         } else if (state.h === 'right') {
           state.flip = false;
@@ -9542,6 +9579,10 @@
     }
     function snapCheck() {
       if (!snapConfig || snapConfig.mode === 'off') return;
+      if (standaloneDesktop) {
+        refreshFlip();
+        return;
+      }
       var rect = whaleLayoutRect();
       var vp = viewport();
       var w = rect.width, h = rect.height;
@@ -11358,6 +11399,15 @@
         } catch (err) {}
       }
     }
+    function isDesktopDemoHoverRunwayHit(e) {
+      if (!standaloneDesktop || !e) return false;
+      try {
+        var runway = document.querySelector('.desktop-demo-hover-runway');
+        if (!runway || !runway.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
+        var rect = runway.getBoundingClientRect();
+        return e.clientX >= rect.left && e.clientX < rect.right && e.clientY >= rect.top && e.clientY < rect.bottom;
+      } catch (err) { return false; }
+    }
     function onDocPointerMoveCursor(e) {
       if (drag && drag.active) {
         setWidgetCursor('grabbing');
@@ -11372,9 +11422,10 @@
         if (!menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible');
         return;
       }
-      var over = isWhaleHit(e);
-      setWidgetCursor(over ? 'grab' : '');
-      if (!menuBtnHide) menuBtn.classList.toggle('dshwv-menu-btn-visible', over || menuOpen);
+      var overWhale = isWhaleHit(e);
+      var overRunway = isDesktopDemoHoverRunwayHit(e);
+      setWidgetCursor(overWhale ? 'grab' : '');
+      if (!menuBtnHide) menuBtn.classList.toggle('dshwv-menu-btn-visible', overWhale || overRunway || menuOpen);
     }
     document.addEventListener('pointermove', onDocPointerMoveCursor, true);
     document.addEventListener('mousemove', onDocPointerMoveCursor, true);
@@ -11464,6 +11515,8 @@
     }
     window.addEventListener('resize', function () {
       if (standaloneDesktop) {
+        refreshDesktopScreenGeometry();
+        refreshFlip();
         if (menuOpen) positionMenu();
         return;
       }
@@ -11471,6 +11524,8 @@
       settle();
     });
     window.addEventListener('whale-native-root-offset', function () {
+      refreshDesktopScreenGeometry();
+      if (standaloneDesktop) refreshFlip();
       if (standaloneDesktop && menuOpen) positionMenu();
     });
     var rect0 = root.getBoundingClientRect();
@@ -11505,6 +11560,8 @@
         refresh: refresh, usage: refreshUsageMain, next: bubbleNext, close: hideBubble,
         poll: pollLastTurn, importRole: onRoleFileChosen, importBubble: bubbleUploadImg,
         openHistory: openUsageRecordsWindow,
+        openSnap: openSnapModal,
+        snapStatus: function () { return { open: !!snapMask && snapMask.style.display !== 'none', config: cloneSnap(snapConfig) }; },
         showCost: showCostBubble,
         open: whaleClick,
         menu: function (open) { if (open && !menuOpen) toggleMenu(); else if (!open && menuOpen) closeMenu(); return menuOpen; },

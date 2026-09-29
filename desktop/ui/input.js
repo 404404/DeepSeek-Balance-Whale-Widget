@@ -7,7 +7,7 @@
   let point = { x: -1, y: -1 }, heldPointer = null, releaseEpoch = 0, interactive = false, keyboardFocus = false, ready = false, lastStorage = '', surfaceExpanded = false, lastWidgetSize = '', lastHitRegion = '', lastSurfaceReason = 'none', lastDiagnosticKey = '';
   const standalone = bridge.standalone === true;
   const testMode = bridge.testMode === true;
-  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden]),.desktop-demo-panel:not([hidden]),.desktop-demo-button.is-visible';
+  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden]),.desktop-demo-panel:not([hidden]),.desktop-demo-button.is-visible,.desktop-demo-hover-runway';
   // A visible hover button belongs to the compact widget hit area. It is not
   // an expanded surface: expanding the native window on hover creates a
   // resize -> coordinate -> hover feedback loop.
@@ -58,7 +58,7 @@
     const rect = pet.getBoundingClientRect();
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
     const margin = 4;
-    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-menu.dshwv-menu-open,.desktop-demo-panel:not([hidden]),.desktop-demo-button.is-visible')].filter(el => {
+    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-menu.dshwv-menu-open,[class*="mask"],.dshwv-rolelist.dshwv-rolelist-open,.dshwv-audiolist.dshwv-audiolist-open,.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,.desktop-demo-panel:not([hidden]),.desktop-demo-button.is-visible,.desktop-demo-hover-runway')].filter(el => {
       try {
         if (!visible(el)) return false;
         // The role image and the upstream SVG bubble deliberately use
@@ -67,7 +67,7 @@
         // transparent BrowserWindow can only be re-enabled over the menu
         // button and the role becomes impossible to click after a reload or
         // Restore Widget action.
-        const delegatedGesture = el === pet || el.matches?.('.dshwv-pop-open');
+        const delegatedGesture = el === pet || el.matches?.('.dshwv-pop-open,.desktop-demo-hover-runway');
         return delegatedGesture || getComputedStyle(el).pointerEvents !== 'none';
       } catch { return false; }
     });

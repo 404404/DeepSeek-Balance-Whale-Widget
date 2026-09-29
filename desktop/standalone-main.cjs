@@ -16,6 +16,9 @@ const MIN_WIDGET_SIZE = 122;
 const DEFAULT_WIDGET_SIZE = 375;
 const MAX_WIDGET_SIZE = 625;
 const WINDOWS_HIT_TEST_EXIT_MARGIN = 12;
+const WINDOWS_SURFACE_HOST = process.platform === 'win32';
+const WINDOWS_SURFACE_HOST_WIDTH = 760;
+const WINDOWS_SURFACE_HOST_HEIGHT = 700;
 const args = process.argv.slice(1);
 const fixture = process.env.DESKTOP_DEMO_TEST === '1';
 const layoutTest = fixture || process.argv.includes('--desktop-demo-render-test');
@@ -51,7 +54,6 @@ let inputEnabled = false;
 let keyboardFocus = false;
 let manuallyHidden = false;
 let surfaceExpanded = false;
-let surfaceKeepsFramePosition = false;
 let surfaceGeometryPending = false;
 let surfaceGeometryEpoch = 0;
 let pendingSurface = null;
@@ -138,21 +140,36 @@ function defaultFrame() {
   const height = Math.min(size, area.height);
   return { x: area.x + area.width - width - 24, y: area.y + area.height - height - 24, width, height };
 }
+function windowsSurfaceHostFrame(widgetFrame) {
+  const area = workAreaFor(widgetFrame);
+  const width = Math.min(WINDOWS_SURFACE_HOST_WIDTH, area.width);
+  const height = Math.min(WINDOWS_SURFACE_HOST_HEIGHT, area.height);
+  return clampFrameToArea({
+    x: widgetFrame.x + widgetFrame.width - width,
+    y: widgetFrame.y + widgetFrame.height - height,
+    width,
+    height,
+  }, area, MIN_WIDGET_SIZE);
+}
 function initialFrame() {
   const saved = read(windowStateFile, {});
   const size = configuredWidgetSize();
-  if (!validFrame(saved.frame)) return clampFrame({ ...defaultFrame(), width: size, height: size });
+  if (!validFrame(saved.frame)) {
+    const widgetFrame = clampFrame({ ...defaultFrame(), width: size, height: size });
+    return WINDOWS_SURFACE_HOST ? windowsSurfaceHostFrame(widgetFrame) : widgetFrame;
+  }
   const frame = numericFrame(saved.frame);
   // The native frame remembers the screen position only. Its old width/height
   // can be a 122px feedback-loop artifact, a pre-fix 248x274 frame, or an
   // expanded settings surface. Derive the startup size from the persisted
   // scale and preserve the saved bottom-right screen anchor.
-  return clampFrame({
+  const widgetFrame = clampFrame({
     x: frame.x + frame.width - size,
     y: frame.y + frame.height - size,
     width: size,
     height: size,
   });
+  return WINDOWS_SURFACE_HOST ? windowsSurfaceHostFrame(widgetFrame) : widgetFrame;
 }
 function readWindowState() { return read(windowStateFile, {}); }
 let alwaysOnTop = readWindowState().alwaysOnTop === true;
@@ -160,8 +177,13 @@ function persistWindowState() {
   if (!window || window.isDestroyed()) return;
   try {
     const frame = window.getBounds();
-    const [width, height] = surfaceExpanded && surfaceKeepsFramePosition ? compactWidgetDimensions() : [frame.width, frame.height];
-    save(windowStateFile, { version: 1, frame: { ...frame, width, height }, alwaysOnTop, updatedAt: new Date().toISOString() });
+    const [widgetWidth, widgetHeight] = compactWidgetDimensions();
+    let persistedFrame = frame;
+    if (WINDOWS_SURFACE_HOST) {
+      const offset = nativeRootOffset(frame, widgetWidth, widgetHeight);
+      persistedFrame = { x: frame.x + offset.left, y: frame.y + offset.top, width: widgetWidth, height: widgetHeight };
+    }
+    save(windowStateFile, { version: 1, frame: persistedFrame, alwaysOnTop, updatedAt: new Date().toISOString() });
   } catch {}
 }
 function scheduleFrameSave() {
@@ -393,13 +415,30 @@ async function runDesktopDemoSmokeTest() {
     await fs.promises.writeFile(target, image.toPNG());
     evidence.screenshots.push(path.basename(target));
   };
+  const clickRendererPoint = async point => {
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error('Renderer click geometry is missing');
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y });
+    window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+    window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+    await interactionDelay(100);
+  };
+  const hitRegionContains = point => hitRegions.some(region => point.x >= region.left && point.x <= region.left + region.width && point.y >= region.top && point.y <= region.top + region.height);
   try {
     await fs.promises.mkdir(shots, { recursive: true });
     if (!await waitForInteractionReady()) throw new Error('standalone renderer did not become ready');
     const available = await interactionRendererEval('!!window.__desktopDemoSmoke');
     record('demo-controller-loaded-in-packaged-renderer', available === true);
 
-    await interactionRendererEval('window.__desktopDemoSmoke.setHover(true); true');
+    await interactionRendererEval('window.__desktopDemoSmoke.setHover(false); true');
+    await interactionDelay(120);
+    const runwayBeforeHover = await interactionRendererEval(`(() => { const runway=document.querySelector('.desktop-demo-hover-runway').getBoundingClientRect(); const root=document.querySelector('.dshwv-root').getBoundingClientRect(); const menu=document.querySelector('.dshwv-menu-btn').getBoundingClientRect(); return {runway:{left:runway.left,top:runway.top,right:runway.right,bottom:runway.bottom,width:runway.width,height:runway.height},root:{left:root.left,right:root.right,width:root.width},menu:{top:menu.top},controlsOpen:document.querySelector('.desktop-demo-controls').open}; })()`);
+    const runwayPoint = { x: Math.round(runwayBeforeHover.runway.left + Math.min(12, runwayBeforeHover.runway.width / 2)), y: Math.round(runwayBeforeHover.runway.top + runwayBeforeHover.runway.height / 2) };
+    const runwayReported = hitRegionContains(runwayPoint) && runwayBeforeHover.controlsOpen === false && runwayBeforeHover.runway.width >= runwayBeforeHover.root.width - 2 && runwayBeforeHover.runway.left <= runwayBeforeHover.root.left + 1 && runwayBeforeHover.runway.right >= runwayBeforeHover.root.right - 2 && Math.abs(runwayBeforeHover.runway.top - (runwayBeforeHover.menu.top - 60)) <= 2;
+    record('hover-runway-is-reported-before-shortcut-show', runwayReported, { ...runwayBeforeHover, runwayPoint, hitRegions });
+    window.webContents.sendInputEvent({ type: 'mouseMove', ...runwayPoint });
+    await interactionDelay(180);
+    const runwayHover = await interactionRendererEval(`(() => ({settingsVisible:document.querySelector('.dshwv-menu-btn').classList.contains('dshwv-menu-btn-visible'),controlsOpen:document.querySelector('.desktop-demo-controls').open,buttons:[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible'))}))()`);
+    record('redline-runway-reveals-controls-on-hover', runwayHover?.settingsVisible === true && runwayHover.controlsOpen === true && runwayHover.buttons.length === 2 && runwayHover.buttons.every(Boolean), runwayHover);
     await interactionDelay(100);
     const hoverControls = await interactionRendererEval(`(() => { const root=document.querySelector('.desktop-demo-controls'); const settings=document.querySelector('.dshwv-menu-btn').getBoundingClientRect(); const buttons=[...root.querySelectorAll('.desktop-demo-button')].map(button=>{const r=button.getBoundingClientRect();return {visible:button.classList.contains('is-visible'),left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height};}); return {open:root.open,settings:{left:settings.left,top:settings.top,right:settings.right,bottom:settings.bottom},buttons}; })()`);
     const controlsAboveSettings = hoverControls?.open === true && hoverControls.buttons?.length === 2 && hoverControls.buttons.every(button => button.visible && button.width >= 24 && button.height >= 24) && Math.abs((hoverControls.buttons[0].left + hoverControls.buttons[0].right) - (hoverControls.settings.left + hoverControls.settings.right)) <= 2 && Math.abs(hoverControls.buttons[0].left - hoverControls.buttons[1].left) <= 1;
@@ -414,6 +453,44 @@ async function runDesktopDemoSmokeTest() {
     await interactionRendererEval('document.querySelector("#settings-dialog").close(); window.__desktopDemoSmoke.setHover(false); true');
     await interactionDelay(220);
 
+    await interactionRendererEval('window.__whaleRenderTest?.openSnap(); true');
+    await interactionDelay(160);
+    const snapGeometry = await interactionRendererEval(`(() => { const mask=document.querySelector('.dshwv-snapmask').getBoundingClientRect(); const radio=document.querySelector('.dshwv-snapmodes input[value="px"]').getBoundingClientRect(); const ok=document.querySelector('.dshwv-snapbtn-ok').getBoundingClientRect(); const center=r=>({x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}); return {mask:{left:mask.left,top:mask.top,right:mask.right,bottom:mask.bottom},radio:center(radio),confirm:center(ok),open:window.__whaleRenderTest.snapStatus().open}; })()`);
+    const snapHitRegionPass = snapGeometry?.open === true && hitRegionContains(snapGeometry.radio) && hitRegionContains(snapGeometry.confirm);
+    record('snap-settings-controls-are-native-hit-regions', snapHitRegionPass, { snapGeometry, hitRegions });
+    await clickRendererPoint(snapGeometry.radio);
+    const pxSelected = await interactionRendererEval('document.querySelector(".dshwv-snapmodes input[value=\"px\"]").checked');
+    const confirmGeometry = await interactionRendererEval(`(() => { const r=document.querySelector('.dshwv-snapbtn-ok').getBoundingClientRect(); return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}; })()`);
+    await clickRendererPoint(confirmGeometry);
+    const snapSaved = await interactionRendererEval(`(() => { const status=window.__whaleRenderTest.snapStatus(); const saved=JSON.parse(localStorage.getItem('dshw-snap')||'null'); return {open:status.open,mode:status.config.mode,savedMode:saved?.mode,version:saved?.v,pxFlip:status.config.px.F}; })()`);
+    const snapSavedPass = pxSelected === true && snapSaved?.open === false && snapSaved.mode === 'px' && snapSaved.savedMode === 'px' && snapSaved.version === 4 && snapSaved.pxFlip >= 0;
+    record('snap-settings-radio-and-confirm-save', snapSavedPass, { pxSelected, snapSaved });
+
+    const flipSamples = [];
+    if (WINDOWS_SURFACE_HOST) {
+      const original = window.getBounds();
+      const geometry = nativeScreenGeometry();
+      const [widgetWidth, widgetHeight] = compactWidgetDimensions();
+      const offset = nativeRootOffset(original, widgetWidth, widgetHeight);
+      if (!geometry?.workArea) throw new Error('Monitor work-area geometry is unavailable for flip smoke');
+      try {
+        for (const fraction of [0.75, 0.25, 0.75]) {
+          const centerX = geometry.workArea.x + geometry.workArea.width * fraction;
+          const x = Math.round(centerX - offset.left - widgetWidth / 2);
+          window.setBounds({ ...original, x });
+          window.webContents.send('whale-native-drag-moved', nativeScreenGeometry());
+          await interactionDelay(140);
+          flipSamples.push({ fraction, flip: await interactionRendererEval('window.__whaleRenderTest?.status()?.flip ?? null') });
+        }
+      } finally {
+        window.setBounds(original);
+        window.webContents.send('whale-native-drag-moved', nativeScreenGeometry());
+        await interactionDelay(100);
+      }
+    }
+    const flipPass = !WINDOWS_SURFACE_HOST || (flipSamples.length === 3 && flipSamples[0].flip === false && flipSamples[1].flip === true && flipSamples[2].flip === false);
+    record('flip-follows-monitor-midline-and-returns', flipPass, { platform: process.platform, samples: flipSamples });
+
     await interactionRendererEval('window.__desktopDemoSmoke.setHover(true); true');
     await interactionDelay(100);
     const petEpochBeforeChat = await interactionRendererEval("window.__whaleRenderTest?.status()?.epoch ?? null");
@@ -427,6 +504,11 @@ async function runDesktopDemoSmokeTest() {
     const chatOpen = await interactionRendererEval(`(() => { const buttons=[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
     const chatFits = chatOpen?.panel?.open === true && chatOpen.buttons[0] === true && chatOpen.panel.left >= -1 && chatOpen.panel.top >= -1 && chatOpen.panel.right <= chatOpen.viewport.width + 1 && chatOpen.panel.bottom <= chatOpen.viewport.height + 1;
     record('message-button-and-chat-panel-geometry', chatFits, chatOpen);
+    const chatFrame = interactionFrame();
+    const chatScreenBounds = { left: chatFrame.x + chatOpen.panel.left, top: chatFrame.y + chatOpen.panel.top, right: chatFrame.x + chatOpen.panel.right, bottom: chatFrame.y + chatOpen.panel.bottom };
+    const monitorWorkArea = nativeScreenGeometry()?.workArea;
+    const chatInsideWorkArea = process.platform !== 'win32' || (!!monitorWorkArea && chatScreenBounds.left >= monitorWorkArea.x - 1 && chatScreenBounds.top >= monitorWorkArea.y - 1 && chatScreenBounds.right <= monitorWorkArea.x + monitorWorkArea.width + 1 && chatScreenBounds.bottom <= monitorWorkArea.y + monitorWorkArea.height + 1);
+    record('chat-panel-stays-inside-monitor-work-area', chatInsideWorkArea, { panel: chatScreenBounds, workArea: monitorWorkArea, frame: chatFrame });
     const frameAfterChat = interactionFrame();
     const chatKeepsWindowOrigin = process.platform !== 'win32' || (!!frameBeforeChat && !!frameAfterChat && frameBeforeChat.x === frameAfterChat.x && frameBeforeChat.y === frameAfterChat.y);
     record('chat-open-keeps-window-origin-on-windows', chatKeepsWindowOrigin, { before: frameBeforeChat, after: frameAfterChat, platform: process.platform });
@@ -526,10 +608,10 @@ function hide() { manuallyHidden = true; if (window && !window.isDestroyed()) wi
 function toggle() { manuallyHidden ? show() : hide(); }
 function restoreWidget() {
   manuallyHidden = false;
-  const frame = defaultFrame();
+  const widgetFrame = defaultFrame();
+  const frame = WINDOWS_SURFACE_HOST ? windowsSurfaceHostFrame(widgetFrame) : widgetFrame;
   if (window && !window.isDestroyed()) {
     surfaceExpanded = false;
-    surfaceKeepsFramePosition = false;
     surfaceGeometryEpoch += 1;
     surfaceGeometryPending = false;
     surfaceReason = 'restore-widget';
@@ -579,23 +661,6 @@ function resizeKeepingBottomRight(width, height) {
   updateNativeInputRouting();
   return target;
 }
-function resizeKeepingTopLeft(width, height) {
-  if (!window || window.isDestroyed() || nativeDrag) return null;
-  const current = window.getBounds();
-  const area = workAreaFor(current);
-  const target = {
-    x: current.x,
-    y: current.y,
-    width: Math.max(MIN_WIDGET_SIZE, Math.min(Math.round(width), area.width)),
-    height: Math.max(MIN_WIDGET_SIZE, Math.min(Math.round(height), area.height)),
-  };
-  if (target.width === current.width && target.height === current.height) return target;
-  window.setBounds(target);
-  scheduleFrameSave();
-  sendCursor(true);
-  updateNativeInputRouting();
-  return target;
-}
 function requestRendererLayout() {
   if (window && !window.isDestroyed() && rendererReady) {
     try { window.webContents.send('whale-layout-request', { surfaceGeometryEpoch }); } catch {}
@@ -617,6 +682,30 @@ function compactWidgetDimensions() {
   const size = configuredWidgetSize();
   return [size, size];
 }
+function nativeRootOffset(frame, widgetWidth, widgetHeight) {
+  const values = String(lastNativeRootOffset || '').split(',').map(Number);
+  if (values.length === 2 && values.every(Number.isFinite)) return { left: values[0], top: values[1] };
+  return {
+    left: Math.max(0, frame.width - widgetWidth),
+    top: Math.max(0, frame.height - widgetHeight),
+  };
+}
+function nativeScreenGeometry() {
+  if (!window || window.isDestroyed()) return null;
+  const frame = window.getBounds();
+  const [width, height] = compactWidgetDimensions();
+  const offset = nativeRootOffset(frame, width, height);
+  const widgetBounds = { x: frame.x + offset.left, y: frame.y + offset.top, width, height };
+  let display;
+  try { display = screen.getDisplayMatching(widgetBounds); } catch { display = screen.getPrimaryDisplay(); }
+  const area = display?.workArea;
+  if (!area) return null;
+  return {
+    frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
+    widget: widgetBounds,
+    workArea: { x: area.x, y: area.y, width: area.width, height: area.height },
+  };
+}
 function reportNativeWidgetSize(requestedWidth, requestedHeight) {
   if (!window || window.isDestroyed() || surfaceExpanded || !rendererReady) return;
   const native = window.getContentBounds();
@@ -631,15 +720,14 @@ function applySurfaceGeometry(expanded) {
   surfaceGeometryEpoch += 1;
   surfaceGeometryPending = true;
   setInputEnabled(true, 'surface-geometry-transition');
-  if (expanded) {
-    surfaceKeepsFramePosition = process.platform === 'win32';
-    if (surfaceKeepsFramePosition) {
-      // On Windows, changing the native frame origin and then correcting the
-      // renderer root creates a visible one-frame pet jump. Grow down/right
-      // from the existing origin so the pet stays at the same screen point.
-      resizeKeepingTopLeft(760, 700);
-      sendNativeRootOffset(0, 0);
-    } else {
+  if (WINDOWS_SURFACE_HOST) {
+    // Keep a transparent, work-area-sized host around the compact widget.
+    // Dialogs can use the surrounding space without moving the native frame
+    // or the pet when a panel opens.
+    const [width, height] = compactWidgetDimensions();
+    const content = window.getContentBounds();
+    sendNativeRootOffset(Math.max(0, content.width - width), Math.max(0, content.height - height));
+  } else if (expanded) {
       const before = window.getBounds();
       const screenAnchor = { right: before.x + before.width, bottom: before.y + before.height };
       const target = resizeKeepingBottomRight(760, 700) || window.getBounds();
@@ -648,13 +736,10 @@ function applySurfaceGeometry(expanded) {
       // where the native frame can move without a visible intermediate frame.
       const offset = surfaceRootOffset(target, width, height, screenAnchor);
       sendNativeRootOffset(offset.left, offset.top);
-    }
   } else {
     const [width, height] = compactWidgetDimensions();
-    if (surfaceKeepsFramePosition) resizeKeepingTopLeft(width, height);
-    else resizeKeepingBottomRight(width, height);
+    resizeKeepingBottomRight(width, height);
     sendNativeRootOffset(0, 0);
-    surfaceKeepsFramePosition = false;
   }
   requestRendererLayout();
 }
@@ -676,13 +761,17 @@ function setSurface(expanded, reason) {
 function setWidgetSize(size) {
   // The page reports its content geometry in one direction only. It must never
   // resize the native window while a native drag is in progress.
-  if (surfaceExpanded || nativeDrag || !layoutConfigReady || !size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
+  if ((!WINDOWS_SURFACE_HOST && surfaceExpanded) || nativeDrag || !layoutConfigReady || !size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return;
   const width = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(Number(size.requestedWidth) || Number(size.width))));
   const height = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.ceil(Number(size.requestedHeight) || Number(size.height))));
   const key = width + 'x' + height;
   if (key === lastWidgetSize) return;
   lastWidgetSize = key;
-  resizeKeepingBottomRight(width, height);
+  if (WINDOWS_SURFACE_HOST) {
+    const content = window.getContentBounds();
+    sendNativeRootOffset(Math.max(0, content.width - width), Math.max(0, content.height - height));
+    scheduleFrameSave();
+  } else resizeKeepingBottomRight(width, height);
   if (!layoutReady && window && !window.isDestroyed()) {
     // The native content bounds after setBounds are the final geometry
     // contract. Comparing against them avoids a second screen-size formula
@@ -691,7 +780,9 @@ function setWidgetSize(size) {
     const area = workAreaFor(native);
     const effectiveWidth = Math.min(width, Math.max(MIN_WIDGET_SIZE, area.width));
     const effectiveHeight = Math.min(height, Math.max(MIN_WIDGET_SIZE, area.height));
-    layoutReady = Math.abs(effectiveWidth - native.width) <= 2 && Math.abs(effectiveHeight - native.height) <= 2;
+    layoutReady = WINDOWS_SURFACE_HOST
+      ? native.width + 2 >= width && native.height + 2 >= height
+      : Math.abs(effectiveWidth - native.width) <= 2 && Math.abs(effectiveHeight - native.height) <= 2;
   }
   reportNativeWidgetSize(width, height);
   writeLayoutDiagnostic();
@@ -722,12 +813,9 @@ function moveNativeDrag(point) {
   const movement = nativeDragMovement({ x: nativeDrag.x, y: nativeDrag.y }, cursor, nativeDrag.moved, 3);
   nativeDrag.moved = movement.moved;
   if (!movement.shouldMove) return;
-  if (!nativeDrag.notifiedMoved) {
-    nativeDrag.notifiedMoved = true;
-    try { window.webContents.send('whale-native-drag-moved'); } catch {}
-  }
   const frame = nativeDrag.frame;
   window.setPosition(Math.round(frame.x + movement.dx), Math.round(frame.y + movement.dy));
+  try { window.webContents.send('whale-native-drag-moved', nativeScreenGeometry()); } catch {}
 }
 function endNativeDrag() {
   if (!nativeDrag) return;
@@ -754,6 +842,9 @@ function handleDisplayChange() {
   const fixed = clampFrame(window.getBounds());
   const current = window.getBounds();
   if (JSON.stringify(fixed) !== JSON.stringify(current)) window.setBounds(fixed);
+  if (rendererReady) {
+    try { window.webContents.send('whale-native-drag-moved', nativeScreenGeometry()); } catch {}
+  }
   scheduleFrameSave();
 }
 function importLegacyFiles() {
@@ -895,10 +986,10 @@ if (!lock) {
       if (surfaceExpanded) {
         surfaceExpanded = false;
         surfaceReason = 'navigation-start';
-        const [width, height] = compactWidgetDimensions();
-        if (surfaceKeepsFramePosition) resizeKeepingTopLeft(width, height);
-        else resizeKeepingBottomRight(width, height);
-        surfaceKeepsFramePosition = false;
+        if (!WINDOWS_SURFACE_HOST) {
+          const [width, height] = compactWidgetDimensions();
+          resizeKeepingBottomRight(width, height);
+        }
       }
       setInputEnabled(false, 'navigation-start');
       setKeyboardFocus(false);
@@ -960,6 +1051,9 @@ if (!lock) {
       await desktopDemoStateImages.reset(state);
       return { ok: true, images: desktopDemoStateImages.getMappings() };
     });
+    ipcMain.on('whale-screen-geometry', event => {
+      event.returnValue = event.sender === window?.webContents ? nativeScreenGeometry() : null;
+    });
     ipcMain.on('whale-ready', event => {
       if (event.sender !== window?.webContents) return;
       markStartup('imageAndInputReady');
@@ -967,7 +1061,11 @@ if (!lock) {
       // A reload can happen while the menu surface is expanded. Re-send the
       // current local root offset to the new DOM instead of relying on a stale
       // renderer cache.
-      if (surfaceExpanded) {
+      if (WINDOWS_SURFACE_HOST) {
+        const [width, height] = compactWidgetDimensions();
+        const bounds = window.getContentBounds();
+        sendNativeRootOffset(Math.max(0, bounds.width - width), Math.max(0, bounds.height - height));
+      } else if (surfaceExpanded) {
         const [width, height] = compactWidgetDimensions();
         const bounds = window.getContentBounds();
         sendNativeRootOffset(Math.max(0, bounds.width - width), Math.max(0, bounds.height - height));
