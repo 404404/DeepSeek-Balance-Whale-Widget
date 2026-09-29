@@ -76,7 +76,7 @@ try {
   assert.equal((await share.validateDroppedPaths([path.join(temp, 'missing.txt')])).code, 'missing-file');
   assert.equal((await share.validateDroppedPaths([])).code, 'no-files');
   assert.equal((await share.validateDroppedPaths(Array(share.MAX_SHARE_FILES + 1).fill(first))).code, 'too-many-files');
-  assert.deepEqual((await share.validateDroppedPaths([first, first])).files.map(file => file.path), [first], 'duplicate paths are shared once');
+  assert.deepEqual((await share.validateDroppedPaths([first, first])).files.map(file => file.path), [canonicalPaths[0]], 'duplicate paths are shared once after canonicalization');
   assert.equal((await share.validateDroppedPaths([empty])).files[0].size, 0, 'zero-byte files remain valid');
   assert.equal((await share.validateDroppedPaths([large])).files[0].size, 32 * 1024 * 1024, 'large sparse files are metadata-checked without reading contents');
   assert.equal((await share.validateDroppedPaths(['https://example.com/file'])).code, 'invalid-path', 'URLs and non-absolute values are not file paths');
