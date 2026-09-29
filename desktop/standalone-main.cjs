@@ -770,6 +770,7 @@ if (!lock) {
         sandbox: true,
         backgroundThrottling: false,
         autoplayPolicy: 'no-user-gesture-required',
+        additionalArguments: layoutTest ? ['--whale-render-test'] : [],
       },
     });
     nativeShareHost = createNativeShareHost({

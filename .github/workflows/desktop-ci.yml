@@ -95,9 +95,11 @@ jobs:
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
-          choco install innosetup --version=6.4.3 --allow-downgrade --yes --no-progress
           $Compiler = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-          if (-not (Test-Path -LiteralPath $Compiler)) { throw "Pinned Inno Setup compiler missing: $Compiler" }
+          if (-not (Test-Path -LiteralPath $Compiler)) { choco install innosetup --version=6.7.1 --yes --no-progress }
+          if (-not (Test-Path -LiteralPath $Compiler)) { throw "Pinned Inno Setup 6.7.1 compiler missing: $Compiler" }
+          $InnoVersion = (Get-Item -LiteralPath $Compiler).VersionInfo.ProductVersion
+          if ($InnoVersion -notmatch '^6\.7\.1(\.|$)') { throw "Expected pinned Inno Setup 6.7.1, got $InnoVersion" }
           "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Configure native MSVC target
         if: matrix.os == 'windows'
