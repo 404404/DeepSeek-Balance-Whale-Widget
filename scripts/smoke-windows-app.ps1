@@ -82,7 +82,9 @@ if ($PortableZip) {
   if (Test-Path -LiteralPath $PortableRoot) { Remove-Item -LiteralPath $PortableRoot -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $PortableRoot | Out-Null
   Expand-Archive -LiteralPath $PortableZip -DestinationPath $PortableRoot -Force
-  Invoke-PackagedCase "portable-$Arch" 1.5 $true $PortableRoot
+  $PortableExe = Join-Path $PortableRoot 'AI Balance Whale.exe'
+  if (-not (Test-Path -LiteralPath $PortableExe -PathType Leaf)) { throw "Portable archive executable missing: $PortableExe" }
+  Invoke-PackagedCase "portable-$Arch" 1.5 $true $PortableExe
 }
 if ($Installer) {
   $InstallRoot = Join-Path $OutputDir 'installer-test'
