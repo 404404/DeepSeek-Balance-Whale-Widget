@@ -141,13 +141,14 @@
     }
   });
   rendering.onFrame(update);
-  if (standalone && bridge.onLayoutRequest) bridge.onLayoutRequest(() => {
+  if (standalone && bridge.onLayoutRequest) bridge.onLayoutRequest(value => {
     // A size message can be intentionally deferred while native dragging or
     // an expanded surface owns the frame. Do not treat that deferred report
     // as applied; the host explicitly asks for a fresh measurement afterwards.
     lastWidgetSize = '';
     reportWidgetSize(true);
     reportHitRegion(true);
+    if (bridge.surfaceGeometryReady) bridge.surfaceGeometryReady(value?.surfaceGeometryEpoch);
     request();
   });
   if (standalone && bridge.onNativeWidgetSize) bridge.onNativeWidgetSize(value => {
@@ -170,6 +171,7 @@
     reportWidgetSize(true);
     reportHitRegion(true);
     rendering.presentFor(220);
+    if (bridge.surfaceGeometryReady) bridge.surfaceGeometryReady(value.surfaceGeometryEpoch);
   });
   // Layout ownership is deliberately one-way in standalone mode: ResizeObserver
   // and the native resize event report geometry; mutation/animation frames only

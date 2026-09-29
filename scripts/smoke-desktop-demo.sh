@@ -68,9 +68,11 @@ for key in ('finderNativeDropValidated', 'physicalImeValidated', 'mousePassthrou
         raise SystemExit(f'desktop-demo smoke must not claim physical OS validation for {key}: {evidence}')
 expected = {
     'demo-controller-loaded-in-packaged-renderer',
-    'hover-controls-stack-vertically',
+    'hover-controls-above-settings-button',
     'settings-dialog-hides-hover-controls',
     'message-button-and-chat-panel-geometry',
+    'chat-button-does-not-activate-pet',
+    'chat-surface-input-routing-settles',
     'ime-composition-and-shift-enter-do-not-submit',
     'selected-model-and-local-chat-reply',
     'multiple-attachments-render-with-type-and-size',

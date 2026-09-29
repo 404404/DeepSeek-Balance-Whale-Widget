@@ -51,6 +51,8 @@ let inputEnabled = false;
 let keyboardFocus = false;
 let manuallyHidden = false;
 let surfaceExpanded = false;
+let surfaceGeometryPending = false;
+let surfaceGeometryEpoch = 0;
 let pendingSurface = null;
 let surfaceReason = 'none';
 let nativeDrag = null;
@@ -224,6 +226,13 @@ function updateNativeInputRouting() {
     setInputEnabled(false, 'renderer-not-visible');
     return;
   }
+  // The native frame moves before Chromium reports hit regions in the new
+  // local coordinate space. Keep input enabled during that handoff so a
+  // shortcut click cannot pass through to the widget underneath on Windows.
+  if (surfaceGeometryPending) {
+    setInputEnabled(true, 'surface-geometry-transition');
+    return;
+  }
   // Do not ask the renderer to toggle setIgnoreMouseEvents on every forwarded
   // mouse move. On macOS a transparent ignored BrowserWindow can stop
   // forwarding the very event needed to make it interactive, which causes a
@@ -243,6 +252,8 @@ function writeInputRoutingDiagnostic() {
       reason: inputRoutingReason,
       rendererReady,
       surfaceExpanded,
+      surfaceGeometryPending,
+      surfaceGeometryEpoch,
       surfaceReason,
       nativeDrag: !!nativeDrag,
       contentBounds: window.getContentBounds(),
@@ -385,9 +396,9 @@ async function runDesktopDemoSmokeTest() {
 
     await interactionRendererEval('window.__desktopDemoSmoke.setHover(true); true');
     await interactionDelay(100);
-    const hoverControls = await interactionRendererEval(`(() => { const root=document.querySelector('.desktop-demo-controls'); const buttons=[...root.querySelectorAll('.desktop-demo-button')].map(button=>{const r=button.getBoundingClientRect();return {visible:button.classList.contains('is-visible'),left:r.left,top:r.top,width:r.width,height:r.height};}); return {open:root.open,buttons}; })()`);
-    const controlsStacked = hoverControls?.open === true && hoverControls.buttons?.length === 2 && hoverControls.buttons.every(button => button.visible && button.width >= 24 && button.height >= 24) && Math.abs(hoverControls.buttons[0].left - hoverControls.buttons[1].left) <= 1 && hoverControls.buttons[1].top - hoverControls.buttons[0].top >= 29;
-    record('hover-controls-stack-vertically', controlsStacked, hoverControls);
+    const hoverControls = await interactionRendererEval(`(() => { const root=document.querySelector('.desktop-demo-controls'); const settings=document.querySelector('.dshwv-menu-btn').getBoundingClientRect(); const buttons=[...root.querySelectorAll('.desktop-demo-button')].map(button=>{const r=button.getBoundingClientRect();return {visible:button.classList.contains('is-visible'),left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height};}); return {open:root.open,settings:{left:settings.left,top:settings.top,right:settings.right,bottom:settings.bottom},buttons}; })()`);
+    const controlsAboveSettings = hoverControls?.open === true && hoverControls.buttons?.length === 2 && hoverControls.buttons.every(button => button.visible && button.width >= 24 && button.height >= 24) && Math.abs((hoverControls.buttons[0].left + hoverControls.buttons[0].right) - (hoverControls.settings.left + hoverControls.settings.right)) <= 2 && Math.abs(hoverControls.buttons[0].left - hoverControls.buttons[1].left) <= 1 && hoverControls.buttons[1].top - hoverControls.buttons[0].top >= 29 && hoverControls.buttons[1].bottom <= hoverControls.settings.top - 2;
+    record('hover-controls-above-settings-button', controlsAboveSettings, hoverControls);
     await interactionRendererEval('document.querySelector("#settings-dialog").showModal(); true');
     await interactionDelay(120);
     const settingsControls = await interactionRendererEval(`(() => { const dialog=document.querySelector('#settings-dialog'); const root=document.querySelector('.desktop-demo-controls'); return {settingsOpen:dialog.open,controlsOpen:root.open,buttons:[...root.querySelectorAll('.desktop-demo-button')].map(button=>button.classList.contains('is-visible'))}; })()`);
@@ -395,11 +406,22 @@ async function runDesktopDemoSmokeTest() {
     await interactionRendererEval('document.querySelector("#settings-dialog").close(); window.__desktopDemoSmoke.setHover(false); true');
     await interactionDelay(220);
 
-    await interactionRendererEval(`(async () => { const api=window.__desktopDemoSmoke; api.setHover(true); api.openChat(); await new Promise(resolve=>setTimeout(resolve,120)); const buttons=[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
+    await interactionRendererEval('window.__desktopDemoSmoke.setHover(true); true');
+    await interactionDelay(100);
+    const petEpochBeforeChat = await interactionRendererEval("window.__whaleRenderTest?.status()?.epoch ?? null");
+    const chatButtonPosition = await interactionRendererEval(`(() => { const r=document.querySelector('[data-desktop-demo-control="chat"]').getBoundingClientRect(); return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}; })()`);
+    if (!chatButtonPosition) throw new Error('chat shortcut button geometry is missing');
+    window.webContents.sendInputEvent({ type: 'mouseMove', ...chatButtonPosition });
+    window.webContents.sendInputEvent({ type: 'mouseDown', ...chatButtonPosition, button: 'left', clickCount: 1 });
+    window.webContents.sendInputEvent({ type: 'mouseUp', ...chatButtonPosition, button: 'left', clickCount: 1 });
     await interactionDelay(220);
     const chatOpen = await interactionRendererEval(`(() => { const buttons=[...document.querySelectorAll('.desktop-demo-controls .desktop-demo-button')].map(button=>button.classList.contains('is-visible')); const panel=document.querySelector('dialog[aria-label="快速聊天"]'); const r=panel.getBoundingClientRect(); return {buttons,panel:{open:panel.open,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height},viewport:{width:innerWidth,height:innerHeight}}; })()`);
     const chatFits = chatOpen?.panel?.open === true && chatOpen.buttons[0] === true && chatOpen.panel.left >= -1 && chatOpen.panel.top >= -1 && chatOpen.panel.right <= chatOpen.viewport.width + 1 && chatOpen.panel.bottom <= chatOpen.viewport.height + 1;
     record('message-button-and-chat-panel-geometry', chatFits, chatOpen);
+    const petEpochAfterChat = await interactionRendererEval("window.__whaleRenderTest?.status()?.epoch ?? null");
+    record('chat-button-does-not-activate-pet', petEpochBeforeChat !== null && petEpochBeforeChat === petEpochAfterChat, { before: petEpochBeforeChat, after: petEpochAfterChat });
+    const routingAfterChat = read(path.join(dataDir, 'input-routing.json'), {});
+    record('chat-surface-input-routing-settles', routingAfterChat.surfaceGeometryPending === false && routingAfterChat.surfaceGeometryEpoch > 0 && routingAfterChat.reason !== 'surface-geometry-transition', routingAfterChat);
     await screenshot('desktop-demo-chat-empty.png');
 
     const messagesBeforeIme = await interactionRendererEval(`(() => { const api=window.__desktopDemoSmoke; api.setDraft('中文输入法组合中'); const composing=api.pressEnter({composing:true}); const shifted=api.pressEnter({shiftKey:true}); return {composing,shifted}; })()`);
@@ -495,6 +517,8 @@ function restoreWidget() {
   const frame = defaultFrame();
   if (window && !window.isDestroyed()) {
     surfaceExpanded = false;
+    surfaceGeometryEpoch += 1;
+    surfaceGeometryPending = false;
     surfaceReason = 'restore-widget';
     // Do not let the old page remain visible or keep its old hit rectangles
     // while BrowserWindow.reload() is asynchronous. The new renderer must
@@ -544,12 +568,12 @@ function resizeKeepingBottomRight(width, height) {
 }
 function requestRendererLayout() {
   if (window && !window.isDestroyed() && rendererReady) {
-    try { window.webContents.send('whale-layout-request'); } catch {}
+    try { window.webContents.send('whale-layout-request', { surfaceGeometryEpoch }); } catch {}
   }
 }
 function sendNativeRootOffset(left, top) {
   if (!window || window.isDestroyed() || !rendererReady) return;
-  const value = { left: Math.round(Number(left) || 0), top: Math.round(Number(top) || 0) };
+  const value = { left: Math.round(Number(left) || 0), top: Math.round(Number(top) || 0), surfaceGeometryEpoch };
   const key = value.left + ',' + value.top;
   if (key === lastNativeRootOffset) return;
   lastNativeRootOffset = key;
@@ -574,6 +598,9 @@ function reportNativeWidgetSize(requestedWidth, requestedHeight) {
 }
 function applySurfaceGeometry(expanded) {
   if (!window || window.isDestroyed() || nativeDrag) return;
+  surfaceGeometryEpoch += 1;
+  surfaceGeometryPending = true;
+  setInputEnabled(true, 'surface-geometry-transition');
   if (expanded) {
     const before = window.getBounds();
     const screenAnchor = { right: before.x + before.width, bottom: before.y + before.height };
@@ -811,6 +838,8 @@ if (!lock) {
       hitRegions = [];
       lastNativeRootOffset = '';
       pendingSurface = null;
+      surfaceGeometryEpoch += 1;
+      surfaceGeometryPending = false;
       setInputEnabled(false, 'renderer-gone');
       try { save(path.join(dataDir, 'renderer-gone.json'), { at: new Date().toISOString(), reason: details?.reason || 'unknown' }); } catch {}
       if (!quitting && !window.isDestroyed()) setTimeout(() => { if (!window.isDestroyed()) window.webContents.reload(); }, 500);
@@ -822,6 +851,8 @@ if (!lock) {
       hitRegions = [];
       lastNativeRootOffset = '';
       pendingSurface = null;
+      surfaceGeometryEpoch += 1;
+      surfaceGeometryPending = false;
       if (surfaceExpanded) {
         surfaceExpanded = false;
         surfaceReason = 'navigation-start';
@@ -920,6 +951,13 @@ if (!lock) {
       if (event.sender !== window?.webContents) return;
       if (typeof value === 'boolean') setSurface(value, value ? 'expanded-surface' : 'none');
       else if (value && typeof value === 'object') setSurface(value.expanded, value.reason);
+    });
+    ipcMain.on('whale-surface-geometry-ready', (event, value) => {
+      const epoch = Number(value);
+      if (event.sender !== window?.webContents || !surfaceGeometryPending || epoch !== surfaceGeometryEpoch) return;
+      surfaceGeometryPending = false;
+      updateNativeInputRouting();
+      writeInputRoutingDiagnostic();
     });
     ipcMain.on('whale-layout-ready', (event, size) => {
       if (event.sender !== window?.webContents) return;
