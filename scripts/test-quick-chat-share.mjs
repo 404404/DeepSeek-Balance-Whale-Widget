@@ -36,7 +36,7 @@ for (const unsafe of [
 ]) assert.equal(chat.validateCustomUrl(unsafe), null, `unsafe URL accepted: ${unsafe}`);
 assert.equal(chat.validateCustomUrl('https://chat.example').href, 'https://chat.example/');
 assert.equal(chat.resolveChatConfig({ provider: 'custom', customUrl: '' }), null);
-assert.equal(chat.resolveChatConfig({ provider: 'unknown' }), null);
+assert.equal(chat.resolveChatConfig({ provider: 'unknown' }).provider, 'chatgpt', 'unknown provider values normalize to the safe default');
 
 const stateFile = path.join(os.tmpdir(), `whale-chat-state-${process.pid}.json`);
 try {
