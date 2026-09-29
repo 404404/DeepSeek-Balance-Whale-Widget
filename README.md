@@ -64,8 +64,8 @@ Windows 打包需在对应原生架构的 Visual Studio Developer 环境中运�
 
 ```powershell
 ./scripts/build-windows-share.ps1 -Arch x64 # ARM64 runner 使用 -Arch arm64
-./scripts/build-windows.ps1 -Arch x64 -Version 0.3.0-beta.1
-./scripts/smoke-windows-app.ps1 -AppDir 'dist/windows-x64/AI Balance Whale-win32-x64' -Arch x64 -OutputDir 'qa-output/windows-x64' -Installer 'dist/windows-x64/AI-Balance-Whale-windows-x64-v0.3.0-beta.1-setup.exe'
+./scripts/build-windows.ps1 -Arch x64 -Version 0.3.0-beta.2
+./scripts/smoke-windows-app.ps1 -AppDir 'dist/windows-x64/AI Balance Whale-win32-x64' -Arch x64 -OutputDir 'qa-output/windows-x64' -Installer 'dist/windows-x64/AI-Balance-Whale-windows-x64-v0.3.0-beta.2-setup.exe'
 ```
 
 `npm test` 包含语法、坐标模型、HTTPS 设置校验、文件路径拒绝规则、macOS ShareMenu／Windows helper 注入契约以及现有额度 Auth 回归。打包 smoke 会启动实际 `.app`／`.exe`，检查角色资源、命中区域、配置旧版窗口迁移、聊天按钮一次打开、快速连点与 20 轮同进程缩放；Windows 还测试安装到含空格路径后运行与卸载，macOS 验证 DMG 可挂载。`sendInputEvent` 是合成 Electron 输入，不是 OS 物理鼠标验收；GitHub-hosted runner 不验证系统分享面板中目标 App 的真实选择或文件收件结果。smoke 截图与诊断将作为 Actions artifacts 上传。Electron/Chromium 仍是安装包主体积，本次只报告体积，不移除运行时功能。

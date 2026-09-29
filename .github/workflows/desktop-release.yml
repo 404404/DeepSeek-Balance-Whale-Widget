@@ -311,7 +311,10 @@ jobs:
             "" \
             "CI launches the packaged app on each native runner, exercises packaged renderer/native IPC input and same-process resize regressions, tests the Windows install/uninstall path and mounts each macOS DMG. OS-level pointer injection and actual Windows/macOS share-sheet delivery are not verified by headless CI; the share UI is user-mediated and the app does not report delivery success." \
             > "$NOTES"
-          ASSETS=( $(find release-inputs -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.sha256' \) -print | sort) )
+          # The artifacts also carry full smoke diagnostics (including copies
+          # of packages and installer fixtures). Publish only the exact files
+          # staged by each target after its packaged-app acceptance passed.
+          ASSETS=( $(find release-inputs -type f -path '*/qa-output/artifacts/*' \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.sha256' \) -print | sort) )
           [[ "${#ASSETS[@]}" -eq 12 ]] || { echo "expected 12 per-artifact binary/sidecar files, got ${#ASSETS[@]}" >&2; exit 1; }
           ASSETS+=(release-inputs/SHA256SUMS release-inputs/manifest.json)
           if [[ "$PRERELEASE" == true ]]; then
