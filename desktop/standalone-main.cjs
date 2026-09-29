@@ -459,7 +459,7 @@ async function runDesktopDemoSmokeTest() {
     const snapHitRegionPass = snapGeometry?.open === true && hitRegionContains(snapGeometry.radio) && hitRegionContains(snapGeometry.confirm);
     record('snap-settings-controls-are-native-hit-regions', snapHitRegionPass, { snapGeometry, hitRegions });
     await clickRendererPoint(snapGeometry.radio);
-    const pxSelected = await interactionRendererEval('document.querySelector(".dshwv-snapmodes input[value=\"px\"]").checked');
+    const pxSelected = await interactionRendererEval(`document.querySelector('.dshwv-snapmodes input[value="px"]').checked`);
     const confirmGeometry = await interactionRendererEval(`(() => { const r=document.querySelector('.dshwv-snapbtn-ok').getBoundingClientRect(); return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}; })()`);
     await clickRendererPoint(confirmGeometry);
     const snapSaved = await interactionRendererEval(`(() => { const status=window.__whaleRenderTest.snapStatus(); const saved=JSON.parse(localStorage.getItem('dshw-snap')||'null'); return {open:status.open,mode:status.config.mode,savedMode:saved?.mode,version:saved?.v,pxFlip:status.config.px.F}; })()`);
