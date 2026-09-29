@@ -42,7 +42,17 @@ function Invoke-PackagedCase([string]$Label, [double]$Scale, [bool]$Legacy, [str
       if ($Process.HasExited) { throw "Packaged app exited early ($($Process.ExitCode)); stdout=$($StdoutTask.Result); stderr=$($StderrTask.Result)" }
       Start-Sleep -Milliseconds 250
     }
-    if (-not (Test-Path -LiteralPath $EvidencePath)) { throw "Packaged app timed out; stdout=$($StdoutTask.Result); stderr=$($StderrTask.Result)" }
+    if (-not (Test-Path -LiteralPath $EvidencePath)) {
+      if (-not $Process.HasExited) {
+        try { $Process.Kill($true) } catch { }
+        [void]$Process.WaitForExit(10000)
+      }
+      $CapturedStdout = '<reader still pending>'
+      $CapturedStderr = '<reader still pending>'
+      if ($StdoutTask.IsCompleted) { try { $CapturedStdout = $StdoutTask.GetAwaiter().GetResult() } catch { $CapturedStdout = "<stdout read failed: $($_.Exception.GetType().Name)>" } }
+      if ($StderrTask.IsCompleted) { try { $CapturedStderr = $StderrTask.GetAwaiter().GetResult() } catch { $CapturedStderr = "<stderr read failed: $($_.Exception.GetType().Name)>" } }
+      throw "Packaged app timed out after 90 seconds; stdout=$CapturedStdout; stderr=$CapturedStderr"
+    }
     $Evidence = Get-Content -Raw -LiteralPath $EvidencePath | ConvertFrom-Json
     if (-not $Evidence.pass) { throw "Interaction test failed: $($Evidence | ConvertTo-Json -Depth 30 -Compress)" }
     if ($Evidence.osPointerValidated -ne $false) { throw 'Synthetic Electron input must not claim native OS-pointer validation' }
