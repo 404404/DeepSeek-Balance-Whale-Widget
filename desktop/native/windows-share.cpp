@@ -65,7 +65,7 @@ int wmain() {
       auto request = args.Request();
       auto data = request.Data();
       data.ShareCompleted([](DataPackage const&, ShareCompletedEventArgs const&) { g_shareEnded.store(true); SetEvent(g_done); });
-      data.ShareCanceled([](DataPackage const&, IInspectable const&) { g_shareEnded.store(true); SetEvent(g_done); });
+      data.ShareCanceled([](DataPackage const&, Windows::Foundation::IInspectable const&) { g_shareEnded.store(true); SetEvent(g_done); });
       set_share_items(request, request.GetDeferral(), paths);
     });
     // Completion/cancellation only releases this helper's event subscription;

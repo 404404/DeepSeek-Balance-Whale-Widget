@@ -236,6 +236,7 @@ function interactionMouseMove(x, y) {
   if (!window || window.isDestroyed()) return;
   const bounds = window.getContentBounds();
   syntheticCursorScreen = { x: bounds.x + Number(x), y: bounds.y + Number(y) };
+  updateNativeInputRouting();
   window.webContents.sendInputEvent({ type: 'mouseMove', x: Number(x), y: Number(y) });
 }
 async function interactionRendererEval(source) {
@@ -341,7 +342,8 @@ async function runInteractionTest() {
     const menuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {left:r.left,right:r.right,bottom:r.bottom}; })()");
     const menuRoleStable = !!beforeMenuFrame && !!menuFrame && !!beforeMenuDom && !!menuDom && Math.abs(beforeMenuFrame.x + (beforeMenuDom.left+beforeMenuDom.right)/2 - (menuFrame.x + (menuDom.left+menuDom.right)/2)) <= 3 && Math.abs(beforeMenuFrame.y + beforeMenuDom.bottom - (menuFrame.y + menuDom.bottom)) <= 3;
     evidence.steps.push({ name: 'native-input-opens-menu-and-keeps-role-anchor', pass: menuOpened && menuRoleStable, opened: menuOpened, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: menuFrame, role: menuDom } });
-    const closeMenuPoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
+    const menuCloseQueueBefore = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    const closeMenuPoint = await interactionRendererEval("(() => { const m=document.querySelector('.dshwv-menu')?.getBoundingClientRect(),w=innerWidth,h=innerHeight; const candidates=[{x:8,y:8},{x:w-8,y:8},{x:8,y:h-8},{x:w-8,y:h-8},{x:w/2,y:8},{x:8,y:h/2},{x:w-8,y:h/2}]; const ignored='.dshwv-menu,.dshwv-img,.dshwv-chat-btn,.dshwv-menu-btn,.dshwv-pop,.dshwv-rolelist,.dshwv-audiolist,dialog,#settings-dialog,.dshwv-qedit'; const p=candidates.find(p=>{ const e=document.elementFromPoint(p.x,p.y); return (!m||p.x<m.left||p.x>m.right||p.y<m.top||p.y>m.bottom)&&!(e&&e.closest&&e.closest(ignored)); }); return p&&{x:Math.round(p.x),y:Math.round(p.y),target:document.elementFromPoint(p.x,p.y)?.tagName||null}; })()");
     if (closeMenuPoint) {
       interactionMouseMove(closeMenuPoint.x, closeMenuPoint.y);
       window.webContents.sendInputEvent({ type: 'mouseDown', x: closeMenuPoint.x, y: closeMenuPoint.y, button: 'left', clickCount: 1 });
@@ -357,8 +359,10 @@ async function runInteractionTest() {
     }
     closeMenuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{left:r.left,right:r.right,bottom:r.bottom}; })()");
     const closeFrame = interactionFrame();
+    const menuCloseQueueAfter = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+    const menuCloseDoesNotActivatePet = !!menuCloseQueueBefore && !!menuCloseQueueAfter && menuCloseQueueBefore.epoch === menuCloseQueueAfter.epoch && menuCloseQueueBefore.shown === menuCloseQueueAfter.shown;
     const menuCloseAnchorStable = !!beforeMenuFrame && !!beforeMenuDom && !!closeMenuDom && !!closeFrame && Math.abs(beforeMenuFrame.x + (beforeMenuDom.left + beforeMenuDom.right) / 2 - (closeFrame.x + (closeMenuDom.left + closeMenuDom.right) / 2)) <= 3 && Math.abs(beforeMenuFrame.y + beforeMenuDom.bottom - (closeFrame.y + closeMenuDom.bottom)) <= 3;
-    evidence.steps.push({ name: 'native-input-outside-click-closes-menu-and-restores-compact-anchor', pass: menuClosed && menuFrameRestored && menuCloseAnchorStable, closed: menuClosed, compactFrameRestored: menuFrameRestored, anchorStable: menuCloseAnchorStable, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: closeFrame, role: closeMenuDom } });
+    evidence.steps.push({ name: 'native-input-outside-click-closes-menu-without-activating-pet-and-restores-anchor', pass: menuClosed && menuFrameRestored && menuCloseAnchorStable && menuCloseDoesNotActivatePet, closed: menuClosed, compactFrameRestored: menuFrameRestored, anchorStable: menuCloseAnchorStable, doesNotActivatePet: menuCloseDoesNotActivatePet, outsidePoint: closeMenuPoint, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: closeFrame, role: closeMenuDom }, queueBefore: menuCloseQueueBefore, queueAfter: menuCloseQueueAfter });
     await interactionDelay(300);
 
     const defaultChatConfig = QuickChatConfig.storedConfig(values());
@@ -388,9 +392,17 @@ async function runInteractionTest() {
     const chatFrameBefore = interactionFrame();
     const chatQueueBefore = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     const chatRolePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
-    if (chatRolePoint) interactionMouseMove(chatRolePoint.x, chatRolePoint.y);
-    await interactionDelay(100);
-    const chatButton = await interactionRendererEval("(() => { const chat=document.querySelector('.dshwv-chat-btn'), settings=document.querySelector('.dshwv-menu-btn'); if(!chat||!settings||!chat.classList.contains('dshwv-chat-btn-visible'))return null; const c=chat.getBoundingClientRect(),s=settings.getBoundingClientRect(); return {x:Math.round(c.left+c.width/2),y:Math.round(c.top+c.height/2),left:c.left,top:c.top,right:c.right,bottom:c.bottom,settingsTop:s.top}; })()");
+    let chatButton = null;
+    if (chatRolePoint) {
+      interactionMouseMove(8, 8);
+      await interactionDelay(80);
+      interactionMouseMove(chatRolePoint.x, chatRolePoint.y);
+      for (let i = 0; i < 60; i += 1) {
+        chatButton = await interactionRendererEval("(() => { const chat=document.querySelector('.dshwv-chat-btn'), settings=document.querySelector('.dshwv-menu-btn'); if(!chat||!settings||!chat.classList.contains('dshwv-chat-btn-visible'))return null; const c=chat.getBoundingClientRect(),s=settings.getBoundingClientRect(); return {x:Math.round(c.left+c.width/2),y:Math.round(c.top+c.height/2),left:c.left,top:c.top,right:c.right,bottom:c.bottom,settingsTop:s.top}; })()");
+        if (chatButton) break;
+        await interactionDelay(20);
+      }
+    }
     await interactionDelay(60);
     const chatRegionPass = !!chatButton && chatButton.top >= 0 && chatButton.bottom <= window.getContentBounds().height + 1 && chatButton.bottom <= chatButton.settingsTop && hitRegions.some(region => region.left <= chatButton.x && region.left + region.width >= chatButton.x && region.top <= chatButton.y && region.top + region.height >= chatButton.y);
     const openedBeforeChat = fixtureOpenedLinks.length;
