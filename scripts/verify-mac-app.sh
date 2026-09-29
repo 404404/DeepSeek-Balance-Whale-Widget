@@ -12,10 +12,10 @@ EXPECTED_ARCH="${ARCH:-arm64}"
 BINARY="$APP/Contents/MacOS/AI Balance Whale"
 [[ -x "$BINARY" ]] || { echo "main executable missing" >&2; exit 1; }
 case "$EXPECTED_ARCH" in x64|x86_64) EXPECTED_ARCH=x86_64 ;; arm64|aarch64) EXPECTED_ARCH=arm64 ;; *) echo "unsupported expected arch: $EXPECTED_ARCH" >&2; exit 2 ;; esac
-lipo -verify_arch "$EXPECTED_ARCH" "$BINARY" || { echo "main executable is not $EXPECTED_ARCH: $(file "$BINARY")" >&2; exit 1; }
+lipo "$BINARY" -verify_arch "$EXPECTED_ARCH" || { echo "main executable is not $EXPECTED_ARCH: $(file "$BINARY")" >&2; exit 1; }
 FRAMEWORK="$APP/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
 [[ -f "$FRAMEWORK" ]] || { echo 'Electron Framework binary missing' >&2; exit 1; }
-lipo -verify_arch "$EXPECTED_ARCH" "$FRAMEWORK" || { echo "Electron Framework is not $EXPECTED_ARCH: $(file "$FRAMEWORK")" >&2; exit 1; }
+lipo "$FRAMEWORK" -verify_arch "$EXPECTED_ARCH" || { echo "Electron Framework is not $EXPECTED_ARCH: $(file "$FRAMEWORK")" >&2; exit 1; }
 PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 [[ "$PLIST_VERSION" == "$EXPECTED_VERSION" ]] || { echo "version mismatch: $PLIST_VERSION != $EXPECTED_VERSION" >&2; exit 1; }
 PLIST_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
