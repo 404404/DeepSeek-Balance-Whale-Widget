@@ -7,6 +7,7 @@ OUT="${2:-$ROOT/qa-output/mac-smoke}"
 DMG="${3:-}"
 ARCH="${ARCH:-arm64}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
+APP="$(cd "$APP" && pwd -P)"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 PID=''
@@ -56,7 +57,7 @@ if [[ -n "$DMG" ]]; then
   rmdir "$MOUNT" 2>/dev/null || true
   MOUNT=''
   diff -qr "$APP" "$OUT/installed/AI Balance Whale.app" || { echo 'App copied from DMG differs from the verified build bundle' >&2; exit 1; }
-  APP="$OUT/installed/AI Balance Whale.app"
+  APP="$(cd "$OUT/installed/AI Balance Whale.app" && pwd -P)"
   ARCH="$ARCH" VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}" bash scripts/verify-mac-app.sh "$APP"
   printf 'DMG copy verification passed; launching extracted bundle: %s\n' "$APP"
 fi
