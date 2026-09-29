@@ -107,7 +107,6 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: ${{ matrix.msvc_arch }}
-          vsversion: ${{ matrix.arch == 'arm64' && '2026' || '2022' }}
       - name: Parse PowerShell build scripts
         if: matrix.os == 'windows'
         shell: pwsh

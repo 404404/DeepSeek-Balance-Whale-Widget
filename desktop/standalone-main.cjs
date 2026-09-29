@@ -289,12 +289,13 @@ async function runInteractionTest() {
       const expected = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * scale)));
       const expectedFrame = before ? resizeKeepingWidgetAnchor(before, expected, expected, workAreaFor(before), widgetAnchorRatio, expectedAnchor, MIN_WIDGET_SIZE) : null;
       const frame = await waitForInteractionFrame(expected, expected);
-      const dom = await interactionRendererEval("(() => { const root=document.querySelector('.dshwv-root')?.getBoundingClientRect(); const img=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return {root:root && {left:root.left,top:root.top,width:root.width,height:root.height}, image:img && {left:img.left,top:img.top,width:img.width,height:img.height}, scrollWidth:document.documentElement.scrollWidth, scrollHeight:document.documentElement.scrollHeight}; })()");
+      const dom = await interactionRendererEval("(() => { const root=document.querySelector('.dshwv-root')?.getBoundingClientRect(); const img=document.querySelector('.dshwv-img')?.getBoundingClientRect(); const html=document.documentElement,style=getComputedStyle(html); return {root:root && {left:root.left,top:root.top,width:root.width,height:root.height}, image:img && {left:img.left,top:img.top,width:img.width,height:img.height}, viewport:{width:html.clientWidth,height:html.clientHeight}, overflowX:style.overflowX,overflowY:style.overflowY,scrollWidth:html.scrollWidth,scrollHeight:html.scrollHeight}; })()");
       const actualAnchor = frame ? widgetScreenAnchor(frame, widgetAnchorRatio) : null;
       const targetAnchor = expectedFrame ? widgetScreenAnchor(expectedFrame, widgetAnchorRatio) : null;
       const sizePass = !!frame && !!dom?.root && Math.abs(dom.root.width - expected) <= 3 && Math.abs(dom.root.height - expected) <= 3 && Math.abs(frame.width - expected) <= 3 && Math.abs(frame.height - expected) <= 3;
       const anchorPass = !!expectedFrame && !!frame && !!actualAnchor && !!targetAnchor && Math.abs(actualAnchor.x - targetAnchor.x) <= 1 && Math.abs(actualAnchor.y - targetAnchor.y) <= 1;
-      const visiblePass = !!dom?.image && dom.image.width > 0 && dom.image.height > 0 && dom.image.left >= dom.root.left - 2 && dom.image.top >= dom.root.top - 2 && dom.image.left + dom.image.width <= dom.root.left + dom.root.width + 2 && dom.image.top + dom.image.height <= dom.root.top + dom.root.height + 2 && dom.scrollWidth <= expected + 2 && dom.scrollHeight <= expected + 2;
+      const rootInViewport = !!dom?.viewport && dom.root.left >= -2 && dom.root.top >= -2 && dom.root.left + dom.root.width <= dom.viewport.width + 2 && dom.root.top + dom.root.height <= dom.viewport.height + 2;
+      const visiblePass = !!dom?.image && dom.image.width > 0 && dom.image.height > 0 && dom.image.left >= dom.root.left - 2 && dom.image.top >= dom.root.top - 2 && dom.image.left + dom.image.width <= dom.root.left + dom.root.width + 2 && dom.image.top + dom.image.height <= dom.root.top + dom.root.height + 2 && rootInViewport && dom.overflowX === 'hidden' && dom.overflowY === 'hidden';
       scaleResults.push({ cycle, scale, expected, anchorBefore: expectedAnchor, anchorAfter: actualAnchor, frame, dom, sizePass, anchorPass, visiblePass });
     }
     evidence.steps.push({ name: 'same-run-20-cycle-scale-roundtrip', pass: scaleResults.length === 100 && scaleResults.every(step => step.sizePass && step.anchorPass && step.visiblePass), cycles: 20, sequence, failures: scaleResults.filter(step => !step.sizePass || !step.anchorPass || !step.visiblePass), samples: scaleResults.filter(step => step.cycle === 0 || step.cycle === 19) });
@@ -321,19 +322,24 @@ async function runInteractionTest() {
     const menuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {left:r.left,right:r.right,bottom:r.bottom}; })()");
     const menuRoleStable = !!beforeMenuFrame && !!menuFrame && !!beforeMenuDom && !!menuDom && Math.abs(beforeMenuFrame.x + (beforeMenuDom.left+beforeMenuDom.right)/2 - (menuFrame.x + (menuDom.left+menuDom.right)/2)) <= 3 && Math.abs(beforeMenuFrame.y + beforeMenuDom.bottom - (menuFrame.y + menuDom.bottom)) <= 3;
     evidence.steps.push({ name: 'native-input-opens-menu-and-keeps-role-anchor', pass: menuOpened && menuRoleStable, opened: menuOpened, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: menuFrame, role: menuDom } });
-    const closeMenuPoint = await interactionRendererEval("(() => { const b=document.querySelector('.dshwv-menu-btn')?.getBoundingClientRect(); return b&&{x:Math.round(b.left+b.width/2),y:Math.round(b.top+b.height/2)}; })()");
+    const closeMenuPoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
     if (closeMenuPoint) {
       window.webContents.sendInputEvent({ type: 'mouseMove', x: closeMenuPoint.x, y: closeMenuPoint.y });
       window.webContents.sendInputEvent({ type: 'mouseDown', x: closeMenuPoint.x, y: closeMenuPoint.y, button: 'left', clickCount: 1 });
       window.webContents.sendInputEvent({ type: 'mouseUp', x: closeMenuPoint.x, y: closeMenuPoint.y, button: 'left', clickCount: 1 });
     }
-    let menuClosed = false;
+    let menuClosed = false, menuFrameRestored = false, closeMenuDom = null;
     for (let i = 0; i < 60; i += 1) {
       menuClosed = !(await interactionRendererEval("!!document.querySelector('.dshwv-menu')?.classList.contains('dshwv-menu-open')"));
-      if (menuClosed) break;
+      const currentFrame = interactionFrame();
+      menuFrameRestored = !!currentFrame && Math.abs(currentFrame.width - initial.width) <= 2 && Math.abs(currentFrame.height - initial.height) <= 2;
+      if (menuClosed && menuFrameRestored) break;
       await interactionDelay(25);
     }
-    evidence.steps.push({ name: 'native-input-closes-menu-without-residual-surface', pass: menuClosed, closed: menuClosed, frame: interactionFrame() });
+    closeMenuDom = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{left:r.left,right:r.right,bottom:r.bottom}; })()");
+    const closeFrame = interactionFrame();
+    const menuCloseAnchorStable = !!beforeMenuFrame && !!beforeMenuDom && !!closeMenuDom && !!closeFrame && Math.abs(beforeMenuFrame.x + (beforeMenuDom.left + beforeMenuDom.right) / 2 - (closeFrame.x + (closeMenuDom.left + closeMenuDom.right) / 2)) <= 3 && Math.abs(beforeMenuFrame.y + beforeMenuDom.bottom - (closeFrame.y + closeMenuDom.bottom)) <= 3;
+    evidence.steps.push({ name: 'native-input-outside-click-closes-menu-and-restores-compact-anchor', pass: menuClosed && menuFrameRestored && menuCloseAnchorStable, closed: menuClosed, compactFrameRestored: menuFrameRestored, anchorStable: menuCloseAnchorStable, before: { frame: beforeMenuFrame, role: beforeMenuDom }, after: { frame: closeFrame, role: closeMenuDom } });
     await interactionDelay(300);
 
     const defaultChatConfig = QuickChatConfig.storedConfig(values());

@@ -63,7 +63,7 @@ function Invoke-PackagedCase([string]$Label, [double]$Scale, [bool]$Legacy, [str
     $Startup = Get-Content -Raw -LiteralPath (Join-Path $Data 'startup-timings.json') | ConvertFrom-Json
     foreach ($Phase in @('appReady', 'dispatcherReady', 'windowCreated', 'pageLoaded', 'imageAndInputReady', 'interactive')) { if ($null -eq $Startup.phases.$Phase) { throw "Packaged startup phase missing: $Phase" } }
     $Expected = [Math]::Max(122, [Math]::Min(625, 250 * $Scale))
-    if ([Math]::Abs($Layout.root.width - $Expected) -gt 3 -or [Math]::Abs($Layout.root.height - $Expected) -gt 3) { throw "Widget layout does not match scale=$Scale: $($Layout.root | ConvertTo-Json -Compress)" }
+    if ([Math]::Abs($Layout.root.width - $Expected) -gt 3 -or [Math]::Abs($Layout.root.height - $Expected) -gt 3) { throw "Widget layout does not match scale=${Scale}: $($Layout.root | ConvertTo-Json -Compress)" }
     if ($Legacy -and ($Layout.nativeFrame.width -lt 300 -or $Layout.nativeFrame.height -lt 300)) { throw "Legacy 248x274 window was not migrated: $($Layout.nativeFrame | ConvertTo-Json -Compress)" }
     foreach ($Image in @($Evidence.screenshots)) { if (-not (Test-Path -LiteralPath $Image -PathType Leaf)) { throw "Packaged interaction screenshot missing: $Image" } }
     $TestOutput = [pscustomobject]@{ label = $Label; arch = $Arch; scale = $Scale; legacyFrame = $Legacy; pass = $true; evidence = $Evidence; layout = $Layout; runtime = $Runtime }
