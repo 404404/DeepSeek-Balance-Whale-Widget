@@ -353,7 +353,7 @@ async function runInteractionTest() {
     for (let i = 0; i < 60; i += 1) {
       menuClosed = !(await interactionRendererEval("!!document.querySelector('.dshwv-menu')?.classList.contains('dshwv-menu-open')"));
       const currentFrame = interactionFrame();
-      menuFrameRestored = !!currentFrame && Math.abs(currentFrame.width - initial.width) <= 2 && Math.abs(currentFrame.height - initial.height) <= 2;
+      menuFrameRestored = !!currentFrame && !!beforeMenuFrame && Math.abs(currentFrame.width - beforeMenuFrame.width) <= 2 && Math.abs(currentFrame.height - beforeMenuFrame.height) <= 2;
       if (menuClosed && menuFrameRestored) break;
       await interactionDelay(25);
     }
@@ -390,6 +390,7 @@ async function runInteractionTest() {
     await interactionDelay(250);
 
     const chatFrameBefore = interactionFrame();
+    const chatNativeContent = window.getContentBounds();
     const chatQueueBefore = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
     const chatRolePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
     let chatButton = null;
@@ -404,7 +405,14 @@ async function runInteractionTest() {
       }
     }
     await interactionDelay(60);
-    const chatRegionPass = !!chatButton && chatButton.top >= 0 && chatButton.bottom <= window.getContentBounds().height + 1 && chatButton.bottom <= chatButton.settingsTop && hitRegions.some(region => region.left <= chatButton.x && region.left + region.width >= chatButton.x && region.top <= chatButton.y && region.top + region.height >= chatButton.y);
+    const chatRegionChecks = {
+      visibleButton: !!chatButton,
+      withinWebView: !!chatButton && chatButton.top >= 0 && chatButton.bottom <= chatNativeContent.height + 1,
+      aboveSettingsButton: !!chatButton && chatButton.bottom <= chatButton.settingsTop,
+      insideNativeHitRegion: !!chatButton && hitRegions.some(region => region.left <= chatButton.x && region.left + region.width >= chatButton.x && region.top <= chatButton.y && region.top + region.height >= chatButton.y),
+      nativeContentBounds: chatNativeContent,
+    };
+    const chatRegionPass = chatRegionChecks.visibleButton && chatRegionChecks.withinWebView && chatRegionChecks.aboveSettingsButton && chatRegionChecks.insideNativeHitRegion;
     const openedBeforeChat = fixtureOpenedLinks.length;
     const expectedChat = QuickChatConfig.resolveChatConfig(QuickChatConfig.storedConfig(values()));
     setInputEnabled(true, 'quick-chat-button-test');
@@ -419,7 +427,7 @@ async function runInteractionTest() {
     const chatFrameAfter = interactionFrame();
     const chatOpenedOnce = !!expectedChat && fixtureOpenedLinks.length === openedBeforeChat + 1 && fixtureOpenedLinks[openedBeforeChat] === expectedChat.url;
     const chatDidNotMoveOrClick = !!chatFrameBefore && !!chatFrameAfter && chatFrameBefore.x === chatFrameAfter.x && chatFrameBefore.y === chatFrameAfter.y && chatFrameBefore.width === chatFrameAfter.width && chatFrameBefore.height === chatFrameAfter.height && chatQueueBefore?.epoch === chatQueueAfter?.epoch;
-    evidence.steps.push({ name: 'quick-chat-button-native-input-opens-once-without-moving-or-clicking-pet', pass: chatRegionPass && chatOpenedOnce && chatDidNotMoveOrClick, checks: { chatRegionPass, chatOpenedOnce, chatDidNotMoveOrClick }, button: chatButton, expectedUrl: expectedChat?.url, hitRegions, opened: fixtureOpenedLinks.slice(openedBeforeChat), queueBefore: chatQueueBefore, queueAfter: chatQueueAfter, frameBefore: chatFrameBefore, frameAfter: chatFrameAfter });
+    evidence.steps.push({ name: 'quick-chat-button-native-input-opens-once-without-moving-or-clicking-pet', pass: chatRegionPass && chatOpenedOnce && chatDidNotMoveOrClick, checks: { ...chatRegionChecks, chatRegionPass, chatOpenedOnce, chatDidNotMoveOrClick }, button: chatButton, expectedUrl: expectedChat?.url, hitRegions, opened: fixtureOpenedLinks.slice(openedBeforeChat), queueBefore: chatQueueBefore, queueAfter: chatQueueAfter, frameBefore: chatFrameBefore, frameAfter: chatFrameAfter });
 
     const role = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r && {x:(r.left+r.right)/2,y:(r.top+r.bottom)/2,left:r.left,top:r.top,right:r.right,bottom:r.bottom}; })()");
     const roleRegionPass = !!role && hitRegions.some(region => region.left <= role.left + 2 && region.top <= role.top + 2 && region.left + region.width >= role.right - 2 && region.top + region.height >= role.bottom - 2);

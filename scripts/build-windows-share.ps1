@@ -20,7 +20,7 @@ if (-not $Compiler) { throw 'cl.exe is unavailable; run this script from a Visua
 $Args = @(
   '/nologo', '/EHsc', '/std:c++20', '/O2', '/MT', '/utf-8',
   '/DUNICODE', '/D_UNICODE', '/DWIN32_LEAN_AND_MEAN',
-  $Source, "/Fe:$Output", '/link', 'windowsapp.lib', 'runtimeobject.lib', 'ole32.lib', 'shell32.lib'
+  $Source, "/Fe:$Output", '/link', 'windowsapp.lib', 'runtimeobject.lib', 'ole32.lib', 'shell32.lib', 'user32.lib'
 )
 & $Compiler.Source @Args
 if ($LASTEXITCODE -ne 0) { throw "C++/WinRT helper compilation failed with exit code $LASTEXITCODE" }
