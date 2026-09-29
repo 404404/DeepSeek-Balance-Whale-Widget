@@ -339,10 +339,17 @@ jobs:
           SOURCE_SHA: ${{ needs.resolve-source.outputs.source_sha }}
         run: |
           set -euo pipefail
-          RELEASE_ID="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq .id)"
-          [[ -n "$RELEASE_ID" ]]
+          # The REST get-by-tag endpoint hides draft Releases (404), including
+          # the draft created and byte-verified in the previous step. Find the
+          # unique exact-tag draft in the Releases collection, then publish by
+          # its immutable numeric ID.
+          mapfile -t RELEASE_IDS < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG and .draft == true) | .id')
+          [[ "${#RELEASE_IDS[@]}" -eq 1 ]] || { echo "expected exactly one draft for $TAG, found ${#RELEASE_IDS[@]}" >&2; exit 1; }
+          RELEASE_ID="${RELEASE_IDS[0]}"
           if [[ "$PRERELEASE" == true ]]; then PRE=true; else PRE=false; fi
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false -F "prerelease=$PRE" >/dev/null
-          RELEASE_URL="$(gh release view "$TAG" --json url --jq .url)"
+          RELEASE_STATE="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '[.tag_name, (.draft|tostring), (.prerelease|tostring)] | @tsv')"
+          [[ "$RELEASE_STATE" == "$TAG$(printf '\tfalse\t')$PRE" ]] || { echo "unexpected published Release state: $RELEASE_STATE" >&2; exit 1; }
+          RELEASE_URL="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .html_url)"
           printf 'Release: %s\nSource commit: %s\n' "$RELEASE_URL" "$SOURCE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
-          gh release view "$TAG" --json url,isDraft,isPrerelease,assets --jq '{url,isDraft,isPrerelease,assets:[.assets[]|{name,size,url}]}' | tee -a "$GITHUB_STEP_SUMMARY"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '{url:.html_url,tag:.tag_name,isDraft:.draft,isPrerelease:.prerelease,assets:[.assets[]|{name,size,url:browser_download_url}]}' | tee -a "$GITHUB_STEP_SUMMARY"
