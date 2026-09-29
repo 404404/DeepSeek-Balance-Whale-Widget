@@ -352,4 +352,4 @@ jobs:
           [[ "$RELEASE_STATE" == "$TAG$(printf '\tfalse\t')$PRE" ]] || { echo "unexpected published Release state: $RELEASE_STATE" >&2; exit 1; }
           RELEASE_URL="$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq .html_url)"
           printf 'Release: %s\nSource commit: %s\n' "$RELEASE_URL" "$SOURCE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
-          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '{url:.html_url,tag:.tag_name,isDraft:.draft,isPrerelease:.prerelease,assets:[.assets[]|{name,size,url:browser_download_url}]}' | tee -a "$GITHUB_STEP_SUMMARY"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '{url:.html_url,tag:.tag_name,isDraft:.draft,isPrerelease:.prerelease,assets:[.assets[]|{name,size,url:.browser_download_url}]}' | tee -a "$GITHUB_STEP_SUMMARY"
