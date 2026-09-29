@@ -24,7 +24,7 @@ function Invoke-PackagedCase([string]$Label, [double]$Scale, [bool]$Legacy, [str
   $Info.UseShellExecute = $false
   $Info.RedirectStandardOutput = $true
   $Info.RedirectStandardError = $true
-  foreach ($Arg in @('--standalone', '--whale-render-test', '--whale-interaction-test', "--whale-data=$Data")) { [void]$Info.ArgumentList.Add($Arg) }
+  foreach ($Arg in @('--whale-render-test', '--whale-interaction-test', '--whale-test-hang-size-config', "--whale-data=$Data")) { [void]$Info.ArgumentList.Add($Arg) }
   $Info.Environment['WHALE_HOME'] = $Data
   $CodeHome = Join-Path $Data 'codex-home'
   New-Item -ItemType Directory -Force -Path $CodeHome | Out-Null
@@ -69,6 +69,7 @@ function Invoke-PackagedCase([string]$Label, [double]$Scale, [bool]$Legacy, [str
     if ($Layout.image.complete -ne $true -or $Layout.image.naturalWidth -le 0 -or $Layout.image.naturalHeight -le 0) { throw "Packaged role image did not decode: $($Layout.image | ConvertTo-Json -Compress)" }
     if ($Layout.root.display -eq 'none' -or $Layout.root.visibility -eq 'hidden' -or [double]$Layout.root.opacity -le 0) { throw "Packaged role root is hidden: $($Layout.root | ConvertTo-Json -Compress)" }
     $Routing = Get-Content -Raw -LiteralPath (Join-Path $Data 'input-routing.json') | ConvertFrom-Json
+    if ($Routing.sizeConfigFetchBlocked -ne $true) { throw "Smoke did not hold the asynchronous size-config response pending: $($Routing | ConvertTo-Json -Compress)" }
     if ($Routing.mode -ne 'native-screen-hit-region' -or -not $Routing.hitRegions -or -not ($Routing.hitRegions | Where-Object { $_.width -ge 50 -and $_.height -ge 50 })) { throw "Packaged native hit routing lacks the role region: $($Routing | ConvertTo-Json -Compress)" }
     $Startup = Get-Content -Raw -LiteralPath (Join-Path $Data 'startup-timings.json') | ConvertFrom-Json
     foreach ($Phase in @('appReady', 'dispatcherReady', 'windowCreated', 'pageLoaded', 'imageAndInputReady', 'interactive')) { if ($null -eq $Startup.phases.$Phase) { throw "Packaged startup phase missing: $Phase" } }

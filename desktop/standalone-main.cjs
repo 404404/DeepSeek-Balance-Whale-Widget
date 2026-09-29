@@ -72,6 +72,7 @@ let lastNativeRootOffset = '';
 let lastLayoutDiagnostic = null;
 let hitRegions = [];
 let inputRoutingReason = 'startup';
+let sizeConfigFetchBlocked = false;
 let interactionTestStarted = false;
 const rendererErrors = [];
 const fixtureOpenedLinks = [];
@@ -100,9 +101,12 @@ function clampFrame(frame) {
   return clampFrameToArea(frame, workAreaFor(frame), MIN_WIDGET_SIZE);
 }
 function configuredWidgetSize() {
+  return targetWidgetSize(configuredWidgetScale(), { base: 250, min: MIN_WIDGET_SIZE, max: MAX_WIDGET_SIZE });
+}
+function configuredWidgetScale() {
   const saved = read(path.join(dataDir, '.dshw-size.json'), {});
   const scale = Number(saved?.scale);
-  return targetWidgetSize(scale, { base: 250, min: MIN_WIDGET_SIZE, max: MAX_WIDGET_SIZE });
+  return Number.isFinite(scale) && scale >= 0.6 && scale <= 2.5 ? scale : 1.5;
 }
 function defaultFrame() {
   const area = screen.getPrimaryDisplay().workArea;
@@ -222,6 +226,7 @@ function writeInputRoutingDiagnostic() {
       layoutConfigReady,
       layoutReady,
       requestedWidgetSize: lastWidgetSize,
+      sizeConfigFetchBlocked,
       visible: window.isVisible(),
       surfaceExpanded,
       surfaceReason,
@@ -807,6 +812,11 @@ if (!lock) {
     session.defaultSession.protocol.handle('whale', async request => {
       const url = new URL(request.url);
       if (url.host !== 'widget') return new Response('', { status: 403 });
+      if (layoutTest && args.includes('--whale-test-hang-size-config') && request.method === 'GET' && url.pathname === '/dsh-whale/size.json') {
+        sizeConfigFetchBlocked = true;
+        writeInputRoutingDiagnostic();
+        return new Promise(() => {});
+      }
       const result = await dispatcher.dispatch(url.pathname + url.search, {
         method: request.method,
         body: ['GET', 'HEAD'].includes(request.method) ? null : Buffer.from(await request.arrayBuffer()),
@@ -906,6 +916,9 @@ if (!lock) {
     session.defaultSession.setPermissionRequestHandler((_web, _permission, callback) => callback(false));
 
     ipcMain.on('whale-storage', event => { event.returnValue = event.sender === window?.webContents ? values() : {}; });
+    ipcMain.on('whale-layout-config', event => {
+      event.returnValue = event.sender === window?.webContents ? { scale: configuredWidgetScale(), standalone: true } : { scale: 1.5, standalone: false };
+    });
     ipcMain.on('whale-save-storage', (event, input) => { if (event.sender === window?.webContents) storeValues(input); });
     ipcMain.on('whale-user-gesture', event => { if (isMainFrame(event)) trustedGestureAt = Date.now(); });
     ipcMain.handle('whale-open-external', (event, url) => isMainFrame(event) ? openWebLink(url) : false);

@@ -73,7 +73,7 @@ run_case() {
   fi
   mkdir -p "$DATA/codex-home"
   ELECTRON_ENABLE_LOGGING=1 CODEX_HOME="$DATA/codex-home" WHALE_HOME="$DATA" "$APP/Contents/MacOS/AI Balance Whale" \
-    --standalone --whale-render-test --whale-interaction-test --enable-logging=stderr --whale-data="$DATA" >"$LOG" 2>&1 &
+    --whale-render-test --whale-interaction-test --whale-test-hang-size-config --enable-logging=stderr --whale-data="$DATA" >"$LOG" 2>&1 &
   PID=$!
   for _ in $(seq 1 90); do
     if [[ -f "$DATA/startup-timings.json" && -f "$DATA/layout-diagnostic.json" && -f "$DATA/input-routing.json" && -f "$DATA/interaction-test.json" ]]; then break; fi
@@ -111,6 +111,8 @@ if interaction.get('osPointerValidated') is not False:
     raise SystemExit(f'interaction evidence must not claim OS pointer validation: {interaction}')
 if routing.get('mode') != 'native-screen-hit-region':
     raise SystemExit(f'unexpected input routing mode: {routing}')
+if routing.get('sizeConfigFetchBlocked') is not True:
+    raise SystemExit(f'smoke did not hold the asynchronous size-config response pending: {routing}')
 if not isinstance(routing.get('hitRegions'), list) or not routing['hitRegions']:
     raise SystemExit(f'missing native hit regions: {routing}')
 if not any(

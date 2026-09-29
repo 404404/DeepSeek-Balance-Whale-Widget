@@ -1,5 +1,6 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 const saved = ipcRenderer.sendSync('whale-storage');
+const initialLayout = ipcRenderer.sendSync('whale-layout-config');
 try { for (const [key, value] of Object.entries(saved)) if (localStorage.getItem(key) == null) localStorage.setItem(key, value); } catch {}
 let trustedClickAt = 0;
 let trustedQuickChatAt = 0;
@@ -65,7 +66,8 @@ const desktopBridge = {
     return true;
   },
   testMode: process.argv.includes('--whale-render-test') || process.env.WHALE_DESKTOP_TEST === '1',
-  standalone: process.platform === 'darwin' || process.argv.includes('--standalone'),
+  standalone: initialLayout?.standalone === true || process.platform === 'darwin' || process.argv.includes('--standalone'),
+  initialScale: Number(initialLayout?.scale),
   surface: (expanded, reason) => ipcRenderer.send('whale-surface', { expanded: !!expanded, reason: typeof reason === 'string' ? reason : '' }),
   layoutReady: size => ipcRenderer.send('whale-layout-ready', size && typeof size === 'object' ? { width: Number(size.width), height: Number(size.height) } : null),
   widgetSize: size => {

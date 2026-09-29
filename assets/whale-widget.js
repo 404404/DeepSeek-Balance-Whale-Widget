@@ -12,6 +12,8 @@
     var CLICK_SQ = 9;
     var REFRESH_MS = 60000;
     var standaloneDesktop = !!(window.whaleDesktop && window.whaleDesktop.standalone);
+    var initialScale = Number(window.whaleDesktop && window.whaleDesktop.initialScale);
+    if (!isFinite(initialScale) || initialScale < MIN_SCALE || initialScale > MAX_SCALE) initialScale = 1.5;
 
 
     var BUBBLE_MS = 5000;
@@ -62,6 +64,7 @@
     document.head.appendChild(styleEl);
     var root = document.createElement('div');
     root.className = 'dshwv-root';
+    root.style.setProperty('--dshw-scale', String(initialScale));
     var positioner = document.createElement('div');
     positioner.className = 'dshwv-position';
     positioner.appendChild(root);
@@ -131,14 +134,14 @@
     scaleInput.max = String(MAX_SCALE);
     scaleInput.step = '0.1';
     scaleInput.className = 'dshwv-range';
-    scaleInput.value = '1.5';
+    scaleInput.value = String(initialScale);
     var scaleNumber = document.createElement('input');
     scaleNumber.type = 'number';
     scaleNumber.min = '1';
     scaleNumber.max = '20';
     scaleNumber.step = '1';
     scaleNumber.className = 'dshwv-number';
-    scaleNumber.value = '10';
+    scaleNumber.value = String(Math.round((initialScale - MIN_SCALE) / ((MAX_SCALE - MIN_SCALE) / 19)) + 1);
     scaleInput.addEventListener('pointerdown', function () {
       positioner.style.transition = 'none';
     });
@@ -7855,7 +7858,7 @@
       });
     } catch (err) {}
     var state = {
-      scale: 1.5,
+      scale: initialScale,
       h: 'right',
       hOff: 0,
       v: 'bottom',
@@ -11605,6 +11608,11 @@
         }
       } catch (err) {}
     }
+    // The native host reads this same local size snapshot to construct its
+    // first frame. Signal that known-good layout before requesting the legacy
+    // settings endpoint; if that async request stalls, the role is still shown
+    // and correctly sized. Its response below may refine the configuration.
+    signalStandaloneLayoutReady();
     fetch(SIZE_URL, {
       cache: 'no-store'
     }).then(function (r) {
