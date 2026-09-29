@@ -8,7 +8,7 @@ const { externalWebUrl } = require('./external-links.cjs');
 const { createNativeShareHost } = require('./native-share-host.cjs');
 const QuickChatConfig = require('./quick-chat-config.cjs');
 const { pathToFileURL } = require('node:url');
-const { targetWidgetSize, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, resizeKeepingWidgetAnchor, widgetScreenAnchor, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
+const { targetWidgetSize, widgetSizeApplied, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, resizeKeepingWidgetAnchor, widgetScreenAnchor, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
 
 const root = path.resolve(__dirname, '..');
 const MIN_WIDGET_SIZE = 122;
@@ -219,6 +219,10 @@ function writeInputRoutingDiagnostic() {
       enabled: inputEnabled,
       reason: inputRoutingReason,
       rendererReady,
+      layoutConfigReady,
+      layoutReady,
+      requestedWidgetSize: lastWidgetSize,
+      visible: window.isVisible(),
       surfaceExpanded,
       surfaceReason,
       nativeDrag: !!nativeDrag,
@@ -284,7 +288,10 @@ async function runInteractionTest() {
   interactionTestStarted = true;
   const evidence = { version: 'desktop-interaction-3', syntheticInputOnly: true, osPointerValidated: false, pass: false, screenshots: [], steps: [] };
   try {
-    for (let i = 0; i < 100 && (!layoutReady || !window.isVisible()); i += 1) await interactionDelay(20);
+    const startupReady = await waitForInteractionReady();
+    const readiness = { rendererReady, layoutConfigReady, layoutReady, visible: !!window && !window.isDestroyed() && window.isVisible(), frame: interactionFrame(), contentBounds: window && !window.isDestroyed() ? window.getContentBounds() : null };
+    evidence.steps.push({ name: 'packaged-window-layout-ready-before-input', pass: startupReady, readiness });
+    if (!startupReady) throw new Error(`packaged window did not become interactive: ${JSON.stringify(readiness)}`);
     const initial = interactionFrame();
     const initialScale = Number(await interactionRendererEval("Number.parseFloat(getComputedStyle(document.querySelector('.dshwv-root')).getPropertyValue('--dshw-scale'))")) || 1.5;
     setInputEnabled(true, 'interaction-test-hover');
@@ -317,6 +324,10 @@ async function runInteractionTest() {
       const rootInViewport = !!dom?.viewport && dom.root.left >= -2 && dom.root.top >= -2 && dom.root.left + dom.root.width <= dom.viewport.width + 2 && dom.root.top + dom.root.height <= dom.viewport.height + 2;
       const visiblePass = !!dom?.image && dom.image.width > 0 && dom.image.height > 0 && dom.image.left >= dom.root.left - 2 && dom.image.top >= dom.root.top - 2 && dom.image.left + dom.image.width <= dom.root.left + dom.root.width + 2 && dom.image.top + dom.image.height <= dom.root.top + dom.root.height + 2 && rootInViewport && dom.overflowX === 'hidden' && dom.overflowY === 'hidden';
       scaleResults.push({ cycle, scale, expected, anchorBefore: expectedAnchor, anchorAfter: actualAnchor, frame, dom, sizePass, anchorPass, visiblePass });
+      if (!sizePass || !anchorPass || !visiblePass) {
+        evidence.steps.push({ name: 'same-run-scale-roundtrip-first-failure', pass: false, cycle, scale, expected, frame, dom, sizePass, anchorPass, visiblePass });
+        throw new Error(`scale ${scale} did not settle within the native layout contract`);
+      }
     }
     evidence.steps.push({ name: 'same-run-20-cycle-scale-roundtrip', pass: scaleResults.length === 100 && scaleResults.every(step => step.sizePass && step.anchorPass && step.visiblePass), cycles: 20, sequence, failures: scaleResults.filter(step => !step.sizePass || !step.anchorPass || !step.visiblePass), samples: scaleResults.filter(step => step.cycle === 0 || step.cycle === 19) });
 
@@ -572,6 +583,19 @@ function resizeWidgetAroundAnchor(width, height, requestedRatio = widgetAnchorRa
   updateNativeInputRouting();
   return target;
 }
+function confirmWidgetLayout() {
+  if (!layoutConfigReady || !lastWidgetSize || !window || window.isDestroyed()) return false;
+  if (surfaceExpanded || nativeDrag) return layoutReady;
+  const [width, height] = lastWidgetSize.split('x').map(Number);
+  if (![width, height].every(Number.isFinite)) return false;
+  const actual = window.getContentBounds();
+  const area = workAreaFor(actual);
+  layoutReady = widgetSizeApplied({ width, height }, actual, area, MIN_WIDGET_SIZE, 2);
+  if (layoutReady) visibility();
+  writeInputRoutingDiagnostic();
+  writeStartup();
+  return layoutReady;
+}
 function requestRendererLayout() {
   if (window && !window.isDestroyed() && rendererReady) {
     try { window.webContents.send('whale-layout-request'); } catch {}
@@ -651,19 +675,16 @@ function setWidgetSize(size) {
   const key = width + 'x' + height;
   const ratio = Number.isFinite(size.anchorRatioX) && size.anchorRatioX >= 0 && size.anchorRatioX <= 1 ? Number(size.anchorRatioX) : widgetAnchorRatio;
   if (surfaceExpanded || nativeDrag) { pendingWidgetSize = { ...size, requestedWidth: width, requestedHeight: height, anchorRatioX: ratio }; return; }
-  if (key === lastWidgetSize && Math.abs(ratio - widgetAnchorRatio) < 0.0001) return;
-  lastWidgetSize = key;
-  resizeWidgetAroundAnchor(width, height, ratio);
-  if (!layoutReady && window && !window.isDestroyed()) {
-    // The native content bounds after setBounds are the final geometry
-    // contract. Comparing against them avoids a second screen-size formula
-    // disagreeing with AppKit/Electron on a constrained display.
-    const native = window.getContentBounds();
-    const area = workAreaFor(native);
-    const effectiveWidth = Math.min(width, Math.max(MIN_WIDGET_SIZE, area.width));
-    const effectiveHeight = Math.min(height, Math.max(MIN_WIDGET_SIZE, area.height));
-    layoutReady = Math.abs(effectiveWidth - native.width) <= 2 && Math.abs(effectiveHeight - native.height) <= 2;
+  const sameRequest = key === lastWidgetSize && Math.abs(ratio - widgetAnchorRatio) < 0.0001;
+  if (sameRequest && layoutReady) return;
+  if (!sameRequest) {
+    lastWidgetSize = key;
+    layoutReady = false;
+    resizeWidgetAroundAnchor(width, height, ratio);
   }
+  // A duplicate renderer report must still confirm a native resize that may
+  // have completed after the original setBounds call.
+  confirmWidgetLayout();
   reportNativeWidgetSize(width, height);
   writeLayoutDiagnostic();
   visibility();
@@ -834,7 +855,7 @@ if (!lock) {
     applyAlwaysOnTop();
     window.once('ready-to-show', () => markStartup('frameReady'));
     window.on('show', () => { invalidate(); sendCursor(true); });
-    window.on('resize', () => { invalidate(); sendCursor(true); });
+    window.on('resize', () => { invalidate(); sendCursor(true); confirmWidgetLayout(); updateNativeInputRouting(); });
     window.on('move', scheduleFrameSave);
     window.on('moved', scheduleFrameSave);
     window.on('closed', () => { window = null; });

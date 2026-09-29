@@ -8,6 +8,13 @@ function targetWidgetSize(scale, { base = 250, min = 122, max = 625 } = {}) {
   return Math.max(min, Math.min(max, Math.round(raw)));
 }
 
+function widgetSizeApplied(requested, actual, area, min = 122, tolerance = 2) {
+  if (!requested || !actual || !area || ![requested.width, requested.height, actual.width, actual.height, area.width, area.height].every(finite)) return false;
+  const expectedWidth = Math.min(Math.max(min, Number(requested.width)), Math.max(min, Number(area.width)));
+  const expectedHeight = Math.min(Math.max(min, Number(requested.height)), Math.max(min, Number(area.height)));
+  return Math.abs(expectedWidth - Number(actual.width)) <= tolerance && Math.abs(expectedHeight - Number(actual.height)) <= tolerance;
+}
+
 function clampFrameToArea(frame, area, min = 122) {
   const width = Math.min(Math.max(min, Math.round(Number(frame.width))), Math.max(min, area.width));
   const height = Math.min(Math.max(min, Math.round(Number(frame.height))), Math.max(min, area.height));
@@ -92,6 +99,7 @@ function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = nu
 
 module.exports = {
   targetWidgetSize,
+  widgetSizeApplied,
   clampFrameToArea,
   resizeKeepingBottomRight,
   widgetScreenAnchor,
