@@ -10,13 +10,20 @@ const require = createRequire(import.meta.url);
 const chat = require(fileURLToPath(new URL('../desktop/quick-chat-config.cjs', import.meta.url)));
 const share = require(fileURLToPath(new URL('../desktop/native-share.cjs', import.meta.url)));
 const { createNativeShareHost } = require(fileURLToPath(new URL('../desktop/native-share-host.cjs', import.meta.url)));
+const { chooseDropAction } = require(fileURLToPath(new URL('../desktop/drop-action.cjs', import.meta.url)));
+const { extractDroppedFilePaths } = require(fileURLToPath(new URL('../desktop/drop-paths.cjs', import.meta.url)));
+const { createQuickChatWindowHost, parseWindowsDefaultBrowser } = require(fileURLToPath(new URL('../desktop/quick-chat-window.cjs', import.meta.url)));
 const { UiStateStore } = require(fileURLToPath(new URL('../desktop/ui-state-store.cjs', import.meta.url)));
 
-assert.deepEqual(chat.parseChatConfig(null), chat.DEFAULT_CHAT_CONFIG, 'fresh installs default to ChatGPT');
+assert.deepEqual(chat.parseChatConfig(null), chat.DEFAULT_CHAT_CONFIG, 'fresh installs default to DeepSeek');
+assert.equal(chat.parseChatConfig({ version: 1, provider: 'chatgpt' }).provider, 'chatgpt', 'legacy explicit choices survive schema upgrade');
 assert.deepEqual(chat.storedConfig({ 'dshw-provider': 'deepseek', 'dshw-auth-status': 'connected' }), chat.DEFAULT_CHAT_CONFIG, 'legacy users receive a chat default without touching API/Auth settings');
 assert.equal(chat.resolveChatConfig({ provider: 'chatgpt' }).url, 'https://chatgpt.com/');
 assert.equal(chat.resolveChatConfig({ provider: 'grok' }).url, 'https://grok.com/');
 assert.equal(chat.resolveChatConfig({ provider: 'deepseek' }).url, 'https://chat.deepseek.com/');
+assert.equal(chat.resolveChatConfig({ provider: 'doubao' }).url, 'https://www.doubao.com/chat/');
+assert.equal(chat.resolveChatConfig({ provider: 'yuanbao' }).url, 'https://yuanbao.tencent.com/chat/');
+assert.equal(chat.resolveChatConfig({ provider: 'qwen' }).url, 'https://chat.qwen.ai/');
 
 let config = chat.parseChatConfig({ provider: 'custom', customUrl: 'https://chat.example/path', customName: '私人服务' });
 assert.equal(chat.resolveChatConfig(config).name, '私人服务');
@@ -36,7 +43,74 @@ for (const unsafe of [
 ]) assert.equal(chat.validateCustomUrl(unsafe), null, `unsafe URL accepted: ${unsafe}`);
 assert.equal(chat.validateCustomUrl('https://chat.example').href, 'https://chat.example/');
 assert.equal(chat.resolveChatConfig({ provider: 'custom', customUrl: '' }), null);
-assert.equal(chat.resolveChatConfig({ provider: 'unknown' }).provider, 'chatgpt', 'unknown provider values normalize to the safe default');
+assert.equal(chat.resolveChatConfig({ provider: 'unknown' }).provider, 'deepseek', 'unknown provider values normalize to the safe default');
+
+const chromeRegistry = '    ProgId    REG_SZ    ChromeHTML\r\n';
+const chromeCommand = '    (Default)    REG_SZ    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" -- "%1"\r\n';
+assert.deepEqual(parseWindowsDefaultBrowser(chromeRegistry, chromeCommand), {
+  path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', name: 'Chrome', source: 'windows-url-handler',
+}, 'default Chrome profile resolution handles spaces in executable paths');
+assert.equal(parseWindowsDefaultBrowser('ProgId REG_SZ FirefoxURL', chromeCommand), null, 'unsupported defaults do not claim Chrome profile reuse');
+
+const launchedArgs = [];
+const browserLaunch = createQuickChatWindowHost({
+  platform: 'win32', BrowserWindowImpl: function FakeNativeWindow() {},
+  detectBrowserImpl: async () => ({ path: 'C:\\Program Files\\Chrome\\chrome.exe', name: 'Chrome' }),
+  spawnImpl: (exe, args, options) => {
+    launchedArgs.push({ exe, args, options });
+    const child = new EventEmitter(); child.unref = () => {}; queueMicrotask(() => child.emit('spawn')); return child;
+  },
+});
+const appModeResult = await browserLaunch.open('https://chat.example/path?a=1&b=2');
+assert.equal(appModeResult.mode, 'browser-app');
+assert.equal(appModeResult.cookieScope, 'default-browser-profile');
+assert.deepEqual(launchedArgs[0].args, ['--app=https://chat.example/path?a=1&b=2', '--window-size=960,720', '--new-window'], 'browser app arguments preserve query characters without shell interpolation');
+assert.equal(launchedArgs[0].options.shell, false);
+assert.equal((await browserLaunch.open('javascript:alert(1)')).ok, false, 'mini-window host independently rejects unsafe schemes');
+
+const macLaunches = [];
+const macBrowserLaunch = createQuickChatWindowHost({
+  platform: 'darwin', BrowserWindowImpl: function FakeNativeWindow() {},
+  detectBrowserImpl: async () => ({ path: '/Applications/Google Chrome.app', name: 'Chrome' }),
+  spawnImpl: (exe, args, options) => {
+    macLaunches.push({ exe, args, options });
+    const child = new EventEmitter(); child.unref = () => {}; queueMicrotask(() => child.emit('spawn')); return child;
+  },
+});
+const macAppModeResult = await macBrowserLaunch.open('https://chat.example/');
+assert.equal(macAppModeResult.cookieScope, 'default-browser-profile');
+assert.equal(macLaunches[0].exe, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', 'macOS invokes the selected browser bundle executable directly so app-mode arguments reach Chromium');
+assert.deepEqual(macLaunches[0].args, ['--app=https://chat.example/', '--window-size=960,720', '--new-window']);
+assert.equal(macLaunches[0].options.shell, false);
+
+let fakeChatWindow;
+class FakeChatWindow extends EventEmitter {
+  constructor(options) {
+    super(); this.options = options; this.visible = false; this.destroyed = false; this.url = '';
+    this.webContents = {
+      session: { setPermissionRequestHandler: handler => { this.permissionHandler = handler; } },
+      setWindowOpenHandler: handler => { this.openHandler = handler; },
+      on: () => {}, getURL: () => this.url,
+    };
+    fakeChatWindow = this;
+  }
+  async loadURL(url) { this.url = url; }
+  isDestroyed() { return this.destroyed; }
+  isVisible() { return this.visible; }
+  show() { this.visible = true; }
+  focus() { this.focused = true; }
+  destroy() { this.destroyed = true; this.emit('closed'); }
+}
+const appSessionWindow = createQuickChatWindowHost({ platform: 'linux', BrowserWindowImpl: FakeChatWindow, detectBrowserImpl: async () => null });
+const miniResult = await appSessionWindow.open('https://chat.example/first');
+assert.equal(miniResult.mode, 'app-window');
+assert.equal(miniResult.cookieScope, 'app-persistent-session');
+assert.equal(fakeChatWindow.options.webPreferences.partition, 'persist:whale-quick-chat');
+assert.equal(fakeChatWindow.webContents.openHandler({ url: 'javascript:alert(1)' }).action, 'deny');
+assert.equal(fakeChatWindow.webContents.openHandler({ url: 'https://login.example/' }).action, 'allow');
+await appSessionWindow.open('https://chat.example/second');
+assert.equal(fakeChatWindow.url, 'https://chat.example/second', 'subsequent quick-chat actions reuse the same in-app window');
+appSessionWindow.close();
 
 const stateFile = path.join(os.tmpdir(), `whale-chat-state-${process.pid}.json`);
 try {
@@ -70,6 +144,42 @@ try {
   await fs.mkdir(folder);
   const checked = await share.validateDroppedPaths([first, second]);
   const canonicalPaths = [await fs.realpath(first), await fs.realpath(second)];
+  let selectedDropAction = null, quickChatOpens = 0, shareCalls = 0, promptCalls = 0;
+  const promptDrop = async context => { promptCalls += 1; assert.equal(context.canShare, true); assert.equal(context.fileCount, 2); return selectedDropAction; };
+  selectedDropAction = 'quick-chat';
+  const quickDropResult = await chooseDropAction([first, second], {
+    prompt: promptDrop,
+    share: paths => { shareCalls += 1; return { ok: true, status: 'opened', files: paths }; },
+    openQuickChat: () => { quickChatOpens += 1; return { ok: true, status: 'opened-chat' }; },
+  });
+  assert.equal(quickDropResult.status, 'opened-chat');
+  assert.equal(quickChatOpens, 1);
+  assert.equal(shareCalls, 0, 'choosing chat does not invoke the OS share sheet or upload files');
+  selectedDropAction = 'share';
+  const shareDropResult = await chooseDropAction([first, second], {
+    prompt: promptDrop,
+    share: paths => { shareCalls += 1; return { ok: true, status: 'opened', files: paths }; },
+    openQuickChat: () => { quickChatOpens += 1; return { ok: true, status: 'opened-chat' }; },
+  });
+  assert.equal(shareDropResult.status, 'opened');
+  assert.deepEqual(shareDropResult.files, canonicalPaths);
+  assert.equal(shareCalls, 1, 'one chooser action calls the native share path once');
+  const promptCountBeforeEmpty = promptCalls;
+  const emptyDrop = await chooseDropAction([], {
+    prompt: async context => { promptCalls += 1; assert.deepEqual(context, { fileCount: 0, canShare: false }); return 'quick-chat'; },
+    share: () => { throw new Error('must not share empty paths'); },
+    openQuickChat: () => { quickChatOpens += 1; return { ok: true, status: 'opened-chat' }; },
+  });
+  assert.equal(emptyDrop.status, 'opened-chat', 'when path extraction yields nothing, the chooser still offers quick chat');
+  assert.equal(promptCalls, promptCountBeforeEmpty + 1);
+  const cancelledDrop = await chooseDropAction([first], {
+    prompt: async () => 'cancel', share: () => { throw new Error('cancel must not share'); }, openQuickChat: () => { throw new Error('cancel must not open chat'); },
+  });
+  assert.equal(cancelledDrop.status, 'cancelled');
+  const invalidDrop = await chooseDropAction([folder], {
+    prompt: () => { throw new Error('unsupported directories must not prompt'); }, share: () => {}, openQuickChat: () => {},
+  });
+  assert.equal(invalidDrop.code, 'unsupported-directory');
   assert.equal(checked.ok, true);
   assert.deepEqual(checked.files.map(file => file.path), canonicalPaths, 'validated paths are canonicalized for the current platform');
   assert.equal((await share.validateDroppedPaths([folder])).code, 'unsupported-directory');
@@ -81,6 +191,13 @@ try {
   assert.equal((await share.validateDroppedPaths([large])).files[0].size, 32 * 1024 * 1024, 'large sparse files are metadata-checked without reading contents');
   assert.equal((await share.validateDroppedPaths(['https://example.com/file'])).code, 'invalid-path', 'URLs and non-absolute values are not file paths');
   assert.equal((await fs.readFile(first, 'utf8')), 'fixture', 'share validation must not modify source files');
+  const nativeFileMocks = [{ name: 'first' }, { name: 'path-failure' }, { name: 'second' }];
+  assert.deepEqual(extractDroppedFilePaths(nativeFileMocks, file => {
+    if (file.name === 'path-failure') throw new Error('Electron rejected file path');
+    return path.join(temp, `${file.name}.txt`);
+  }), [path.join(temp, 'first.txt'), path.join(temp, 'second.txt')], 'Electron webUtils file-path errors are isolated per item and do not discard valid dropped files');
+  assert.deepEqual(extractDroppedFilePaths(nativeFileMocks, () => '/mock/path', 2), ['/mock/path', '/mock/path'], 'untrusted excess dropped items are bounded before native validation');
+  assert.deepEqual(extractDroppedFilePaths(null, () => '/mock/path'), [], 'missing native FileList becomes an empty selection rather than a thrown bridge error');
 
   const macEvents = [];
   let macPopup = null, fakeMenu;

@@ -14,6 +14,12 @@
   const element = name => form.elements.namedItem(name);
   const chatApi = window.WhaleQuickChatConfig;
   const chatConfigKey = 'dshw-quick-chat';
+  const chatProviderSelect = element('chatProvider');
+  chatProviderSelect.replaceChildren(
+    ...Object.entries(chatApi.PRESETS).map(([id, provider]) => new Option(provider.name, id)),
+    new Option('自定义 HTTPS 地址', 'custom'),
+  );
+  $('quick-chat-settings').querySelector('.help').textContent = '快速聊天在无地址栏的小窗中打开。默认 Chrome/Edge 可复用其默认浏览器资料；其他浏览器使用 AI Balance Whale 独立保存的登录会话。与额度和 Auth 相互独立。';
   function savedChatConfig() {
     try { return chatApi.parseChatConfig(localStorage.getItem(chatConfigKey)); }
     catch { return chatApi.parseChatConfig(null); }
@@ -42,9 +48,11 @@
     if (!chatApi.resolveChatConfig(config)) { chatError('请输入有效的 HTTPS 网址，不要包含用户名或密码。'); return; }
     try {
       const result = await window.whaleDesktop.openQuickChat(config);
-      if (!result?.ok) chatError(result?.error || '系统浏览器无法打开此网址，请重试。');
-      else toast('已在系统默认浏览器打开聊天网站。');
-    } catch (error) { chatError(error.message || '系统浏览器无法打开此网址，请重试。'); }
+      if (!result?.ok) chatError(result?.error || '快速聊天小窗无法打开此网址，请重试。');
+      else toast(result.cookieScope === 'default-browser-profile'
+        ? `已在 ${result.browser || '默认浏览器'} 应用窗口打开聊天，并复用其默认登录资料。`
+        : '已打开快速聊天小窗；登录状态保存在本应用中。');
+    } catch (error) { chatError(error.message || '快速聊天小窗无法打开此网址，请重试。'); }
   });
   async function paintSubscriptions() {
     const data = await api('/api/subscriptions');

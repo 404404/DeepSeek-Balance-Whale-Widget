@@ -34,7 +34,7 @@ if (-not $Npx) { throw 'npx.cmd unavailable; cannot inspect app.asar' }
 $Entries = & $Npx.Source --no-install asar list $Asar
 if ($LASTEXITCODE -ne 0) { throw 'Unable to list packaged app.asar' }
 $NormalizedEntries = @($Entries | ForEach-Object { ([string]$_).TrimStart([char[]]@([char]'/', [char]'\')).Replace('\', '/') })
-foreach ($Entry in @('assets/DSniang1.png', 'assets/whale-widget.js', 'desktop/ui/widget.html', 'desktop/standalone-main.cjs', 'desktop/quick-chat-config.cjs', 'runtime/dispatcher.mjs')) {
+foreach ($Entry in @('assets/DSniang1.png', 'assets/whale-widget.js', 'desktop/ui/widget.html', 'desktop/standalone-main.cjs', 'desktop/preload.cjs', 'desktop/drop-paths.cjs', 'desktop/drop-action.cjs', 'desktop/quick-chat-window.cjs', 'desktop/quick-chat-config.cjs', 'runtime/dispatcher.mjs')) {
   if (-not ($NormalizedEntries -contains $Entry)) { throw "Missing packaged app resource: $Entry" }
 }
 $ElectronVersion = (Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'node_modules\electron\package.json') | ConvertFrom-Json).version

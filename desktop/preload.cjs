@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
+const { extractDroppedFilePaths } = require('./drop-paths.cjs');
 const saved = ipcRenderer.sendSync('whale-storage');
 const initialLayout = ipcRenderer.sendSync('whale-layout-config');
 try { for (const [key, value] of Object.entries(saved)) if (localStorage.getItem(key) == null) localStorage.setItem(key, value); } catch {}
@@ -47,15 +48,11 @@ const desktopBridge = {
     return ipcRenderer.invoke('whale-open-quick-chat', config);
   },
   saveChatConfig: config => ipcRenderer.invoke('whale-save-chat-config', config),
-  shareDroppedFiles: files => {
+  chooseDroppedFileAction: files => {
     if (!processIsTestMode() && (!trustedFileDropAt || Date.now() - trustedFileDropAt > 2000)) return Promise.resolve({ ok: false, code: 'untrusted-drop', message: '请从系统文件管理器将文件拖到人偶上' });
     trustedFileDropAt = 0;
-    if (!files || typeof files[Symbol.iterator] !== 'function') return Promise.resolve({ ok: false, code: 'no-files', message: '没有检测到可分享的本地文件' });
-    const paths = [];
-    for (const file of Array.from(files).slice(0, 21)) {
-      try { paths.push(webUtils.getPathForFile(file)); } catch { paths.push(''); }
-    }
-    return ipcRenderer.invoke('whale-share-files', paths);
+    const paths = extractDroppedFilePaths(files, file => webUtils.getPathForFile(file));
+    return ipcRenderer.invoke('whale-choose-drop-action', paths);
   },
   externalDropActive: value => {
     if (value) {

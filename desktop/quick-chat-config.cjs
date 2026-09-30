@@ -5,12 +5,15 @@
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.WhaleQuickChatConfig = api;
 })(typeof globalThis === 'object' ? globalThis : this, function createQuickChatConfig() {
-  const DEFAULT_CHAT_CONFIG = Object.freeze({ version: 1, provider: 'chatgpt', customUrl: '', customName: '' });
+  const DEFAULT_CHAT_CONFIG = Object.freeze({ version: 2, provider: 'deepseek', customUrl: '', customName: '' });
   const STORAGE_KEY = 'dshw-quick-chat';
   const PRESETS = Object.freeze({
     chatgpt: Object.freeze({ name: 'ChatGPT', url: 'https://chatgpt.com/' }),
     grok: Object.freeze({ name: 'Grok', url: 'https://grok.com/' }),
     deepseek: Object.freeze({ name: 'DeepSeek', url: 'https://chat.deepseek.com/' }),
+    doubao: Object.freeze({ name: '豆包', url: 'https://www.doubao.com/chat/' }),
+    yuanbao: Object.freeze({ name: '元宝', url: 'https://yuanbao.tencent.com/chat/' }),
+    qwen: Object.freeze({ name: '千问', url: 'https://chat.qwen.ai/' }),
   });
   const PROVIDERS = new Set([...Object.keys(PRESETS), 'custom']);
 
@@ -29,9 +32,9 @@
       try { value = JSON.parse(value); } catch { return { ...DEFAULT_CHAT_CONFIG }; }
     }
     if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...DEFAULT_CHAT_CONFIG };
-    const provider = PROVIDERS.has(value.provider) ? value.provider : 'chatgpt';
+    const provider = PROVIDERS.has(value.provider) ? value.provider : DEFAULT_CHAT_CONFIG.provider;
     return {
-      version: 1,
+      version: 2,
       provider,
       customUrl: typeof value.customUrl === 'string' ? value.customUrl.slice(0, 2048) : '',
       customName: typeof value.customName === 'string' ? value.customName.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 48) : '',
@@ -40,7 +43,7 @@
 
   function selectProvider(config, provider) {
     const current = parseChatConfig(config);
-    return { ...current, provider: PROVIDERS.has(provider) ? provider : 'chatgpt' };
+    return { ...current, provider: PROVIDERS.has(provider) ? provider : DEFAULT_CHAT_CONFIG.provider };
   }
 
   function resolveChatConfig(value) {

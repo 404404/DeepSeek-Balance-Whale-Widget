@@ -21,7 +21,7 @@ PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 
 PLIST_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
 [[ "$PLIST_BUILD" == "$EXPECTED_BUILD" ]] || { echo "bundle build mismatch: $PLIST_BUILD != $EXPECTED_BUILD" >&2; exit 1; }
 ASAR_LIST="$(npx --no-install asar list "$APP/Contents/Resources/app.asar")"
-for required in assets/DSniang1.png assets/whale-widget.js desktop/ui/widget.html desktop/standalone-main.cjs desktop/standalone-interaction-model.cjs runtime/dispatcher.mjs lib/widget-host.mjs; do
+for required in assets/DSniang1.png assets/whale-widget.js desktop/ui/widget.html desktop/standalone-main.cjs desktop/standalone-interaction-model.cjs desktop/preload.cjs desktop/drop-paths.cjs desktop/drop-action.cjs desktop/quick-chat-window.cjs desktop/quick-chat-config.cjs runtime/dispatcher.mjs lib/widget-host.mjs; do
   grep -Fq "$required" <<<"$ASAR_LIST" || { echo "missing packaged resource: $required" >&2; exit 1; }
 done
 if grep -Fq 'desktop/follow-main.cjs' <<<"$ASAR_LIST"; then

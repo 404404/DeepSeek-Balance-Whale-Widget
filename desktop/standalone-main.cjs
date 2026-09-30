@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShortcut, shell, protocol, session, net } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShortcut, shell, protocol, session, net, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -6,9 +6,11 @@ const { UiStateStore } = require('./ui-state-store.cjs');
 const { shutdownCompanion } = require('./lifecycle.cjs');
 const { externalWebUrl } = require('./external-links.cjs');
 const { createNativeShareHost } = require('./native-share-host.cjs');
+const { chooseDropAction } = require('./drop-action.cjs');
 const QuickChatConfig = require('./quick-chat-config.cjs');
+const { createQuickChatWindowHost } = require('./quick-chat-window.cjs');
 const { pathToFileURL } = require('node:url');
-const { targetWidgetSize, widgetSizeApplied, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, resizeKeepingWidgetAnchor, widgetScreenAnchor, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
+const { targetWidgetSize, widgetSizeApplied, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, resizeKeepingWidgetAnchor, resizeKeepingWindowOrigin, widgetScreenAnchor, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
 
 const root = path.resolve(__dirname, '..');
 const MIN_WIDGET_SIZE = 122;
@@ -48,6 +50,7 @@ let layoutReady = false;
 let inputEnabled = false;
 let externalDropActive = false;
 let nativeShareHost = null;
+let quickChatWindowHost = null;
 let keyboardFocus = false;
 let manuallyHidden = false;
 let surfaceExpanded = false;
@@ -66,6 +69,7 @@ let trustedGestureAt = 0;
 let trustedQuickChatAt = 0;
 let widgetAnchor = null;
 let widgetAnchorRatio = ROLE_ANCHOR_RATIO;
+let widgetPositionOrigin = null;
 let lastWidgetSize = '';
 let lastNativeWidgetSize = '';
 let lastNativeRootOffset = '';
@@ -122,9 +126,13 @@ function initialFrame() {
   const frame = numericFrame(saved.frame);
   // The native frame remembers the screen position only. Its old width/height
   // can be a feedback-loop artifact, a pre-fix 248x274 frame, or an expanded
-  // settings surface. Preserve the role-layout bottom-centre screen anchor,
-  // not the window corner. A v2 anchor is authoritative after the first run.
+  // settings surface. Version 3 stores the user-controlled window origin and
+  // clamps only as needed for the current display. Version 2 keeps its saved
+  // role anchor during one-time migration.
   const ratio = Number.isFinite(saved.widgetAnchorRatio) && saved.widgetAnchorRatio >= 0 && saved.widgetAnchorRatio <= 1 ? saved.widgetAnchorRatio : ROLE_ANCHOR_RATIO;
+  if (saved.version >= 3 && Number.isFinite(saved.positionOrigin?.x) && Number.isFinite(saved.positionOrigin?.y)) {
+    return resizeKeepingWindowOrigin(frame, size, size, workAreaFor(frame), MIN_WIDGET_SIZE, saved.positionOrigin);
+  }
   const anchor = saved.version >= 2 && saved.widgetAnchor && Number.isFinite(saved.widgetAnchor.x) && Number.isFinite(saved.widgetAnchor.y)
     ? saved.widgetAnchor
     : widgetScreenAnchor(frame, ratio);
@@ -140,8 +148,9 @@ function persistWindowState() {
     const [width, height] = compactWidgetDimensions();
     const actual = window.getBounds();
     const anchor = widgetAnchor || widgetScreenAnchor(actual, widgetAnchorRatio);
-    const compact = resizeKeepingWidgetAnchor(actual, width, height, workAreaFor(actual), widgetAnchorRatio, anchor, MIN_WIDGET_SIZE);
-    save(windowStateFile, { version: 2, frame: compact, widgetAnchor: { x: anchor.x, y: anchor.y }, widgetAnchorRatio, alwaysOnTop, updatedAt: new Date().toISOString() });
+    const origin = widgetPositionOrigin || { x: actual.x, y: actual.y };
+    const compact = resizeKeepingWindowOrigin(actual, width, height, workAreaFor(actual), MIN_WIDGET_SIZE, origin);
+    save(windowStateFile, { version: 3, frame: compact, positionOrigin: origin, widgetAnchor: { x: anchor.x, y: anchor.y }, widgetAnchorRatio, alwaysOnTop, updatedAt: new Date().toISOString() });
   } catch {}
 }
 function scheduleFrameSave() {
@@ -310,31 +319,37 @@ async function runInteractionTest() {
     const hoverFrame = interactionFrame();
     const hoverStable = !!initial && !!hoverFrame && JSON.stringify({ x: initial.x, y: initial.y, width: initial.width, height: initial.height }) === JSON.stringify({ x: hoverFrame.x, y: hoverFrame.y, width: hoverFrame.width, height: hoverFrame.height });
     evidence.steps.push({ name: 'real-page-hover-reveals-buttons-without-native-resize', pass: hoverStable && hoverButtons?.chat && hoverButtons?.menu, before: initial, after: hoverFrame, buttons: hoverButtons });
+    const hoverEdgePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.ceil(r.left-5),y:Math.round((r.top+r.bottom)/2)}; })()");
+    const beforeFivePxHover = interactionFrame();
+    if (hoverEdgePoint) interactionMouseMove(hoverEdgePoint.x, hoverEdgePoint.y);
+    await interactionDelay(180);
+    const fivePxHover = await interactionRendererEval("document.querySelector('.dshwv-chat-btn')?.classList.contains('dshwv-chat-btn-visible') === true");
+    const afterFivePxHover = interactionFrame();
+    const fivePxHoverStable = !!fivePxHover && !!beforeFivePxHover && !!afterFivePxHover && beforeFivePxHover.x === afterFivePxHover.x && beforeFivePxHover.y === afterFivePxHover.y;
+    evidence.steps.push({ name: 'buttons-reveal-within-five-dip-hover-margin-without-window-move', pass: fivePxHoverStable, point: hoverEdgePoint, before: beforeFivePxHover, after: afterFivePxHover });
 
     const scaleResults = [];
     const sequence = [1.5, 0.6, 2.5, 1.0, 1.5];
+    const initialWindowOrigin = initial && { x: initial.x, y: initial.y };
     for (let cycle = 0; cycle < 20; cycle += 1) for (const scale of sequence) {
       const before = interactionFrame();
-      const expectedAnchor = before ? widgetScreenAnchor(before, widgetAnchorRatio) : null;
       await interactionRendererEval(`window.__whaleRenderTest?.scale(${scale})`);
       const expected = Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * scale)));
-      const expectedFrame = before ? resizeKeepingWidgetAnchor(before, expected, expected, workAreaFor(before), widgetAnchorRatio, expectedAnchor, MIN_WIDGET_SIZE) : null;
+      const expectedFrame = before ? resizeKeepingWindowOrigin(before, expected, expected, workAreaFor(before), MIN_WIDGET_SIZE, initialWindowOrigin || { x: before.x, y: before.y }) : null;
       const settledLayout = await waitForInteractionLayout(expected, expected);
       const frame = settledLayout.frame;
       const dom = await interactionRendererEval("(() => { const root=document.querySelector('.dshwv-root')?.getBoundingClientRect(); const img=document.querySelector('.dshwv-img')?.getBoundingClientRect(); const html=document.documentElement,style=getComputedStyle(html); return {root:root && {left:root.left,top:root.top,width:root.width,height:root.height}, image:img && {left:img.left,top:img.top,width:img.width,height:img.height}, viewport:{width:html.clientWidth,height:html.clientHeight}, overflowX:style.overflowX,overflowY:style.overflowY,scrollWidth:html.scrollWidth,scrollHeight:html.scrollHeight}; })()");
-      const actualAnchor = frame ? widgetScreenAnchor(frame, widgetAnchorRatio) : null;
-      const targetAnchor = expectedFrame ? widgetScreenAnchor(expectedFrame, widgetAnchorRatio) : null;
       const sizePass = !!frame && !!dom?.root && Math.abs(dom.root.width - expected) <= 3 && Math.abs(dom.root.height - expected) <= 3 && Math.abs(frame.width - expected) <= 3 && Math.abs(frame.height - expected) <= 3;
-      const anchorPass = !!expectedFrame && !!frame && !!actualAnchor && !!targetAnchor && Math.abs(actualAnchor.x - targetAnchor.x) <= 1 && Math.abs(actualAnchor.y - targetAnchor.y) <= 1;
+      const originPass = !!expectedFrame && !!frame && Math.abs(frame.x - expectedFrame.x) <= 1 && Math.abs(frame.y - expectedFrame.y) <= 1;
       const rootInViewport = !!dom?.viewport && dom.root.left >= -2 && dom.root.top >= -2 && dom.root.left + dom.root.width <= dom.viewport.width + 2 && dom.root.top + dom.root.height <= dom.viewport.height + 2;
       const visiblePass = !!dom?.image && dom.image.width > 0 && dom.image.height > 0 && dom.image.left >= dom.root.left - 2 && dom.image.top >= dom.root.top - 2 && dom.image.left + dom.image.width <= dom.root.left + dom.root.width + 2 && dom.image.top + dom.image.height <= dom.root.top + dom.root.height + 2 && rootInViewport && dom.overflowX === 'hidden' && dom.overflowY === 'hidden';
-      scaleResults.push({ cycle, scale, expected, anchorBefore: expectedAnchor, anchorAfter: actualAnchor, frame, dom, sizePass, anchorPass, visiblePass });
-      if (!sizePass || !anchorPass || !visiblePass) {
-        evidence.steps.push({ name: 'same-run-scale-roundtrip-first-failure', pass: false, cycle, scale, expected, frame, dom, sizePass, anchorPass, visiblePass });
+      scaleResults.push({ cycle, scale, expected, frame, dom, sizePass, originPass, visiblePass });
+      if (!sizePass || !originPass || !visiblePass) {
+        evidence.steps.push({ name: 'same-run-scale-roundtrip-first-failure', pass: false, cycle, scale, expected, frame, dom, sizePass, originPass, visiblePass });
         throw new Error(`scale ${scale} did not settle within the native layout contract`);
       }
     }
-    evidence.steps.push({ name: 'same-run-20-cycle-scale-roundtrip', pass: scaleResults.length === 100 && scaleResults.every(step => step.sizePass && step.anchorPass && step.visiblePass), cycles: 20, sequence, failures: scaleResults.filter(step => !step.sizePass || !step.anchorPass || !step.visiblePass), samples: scaleResults.filter(step => step.cycle === 0 || step.cycle === 19) });
+    evidence.steps.push({ name: 'same-run-20-cycle-scale-roundtrip-window-origin-stable', pass: scaleResults.length === 100 && scaleResults.every(step => step.sizePass && step.originPass && step.visiblePass), cycles: 20, sequence, failures: scaleResults.filter(step => !step.sizePass || !step.originPass || !step.visiblePass), samples: scaleResults.filter(step => step.cycle === 0 || step.cycle === 19) });
 
     const menuRolePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
     if (menuRolePoint) interactionMouseMove(menuRolePoint.x, menuRolePoint.y);
@@ -382,7 +397,7 @@ async function runInteractionTest() {
     await interactionDelay(300);
 
     const defaultChatConfig = QuickChatConfig.storedConfig(values());
-    const defaultChatPass = defaultChatConfig.provider === 'chatgpt';
+    const defaultChatPass = defaultChatConfig.provider === 'deepseek';
     const openedBeforeSettings = fixtureOpenedLinks.length;
     await interactionRendererEval("window.dispatchEvent(new Event('whale-open-settings'))");
     let settingsOpened = false;
@@ -507,6 +522,7 @@ function toggle() { manuallyHidden ? show() : hide(); }
 function restoreWidget() {
   manuallyHidden = false;
   const frame = defaultFrame();
+  widgetPositionOrigin = { x: frame.x, y: frame.y };
   widgetAnchorRatio = ROLE_ANCHOR_RATIO;
   widgetAnchor = widgetScreenAnchor(frame, widgetAnchorRatio);
   if (window && !window.isDestroyed()) {
@@ -547,6 +563,15 @@ async function openWebLink(value, gestureRequired = true) {
     return true;
   } catch { return false; }
 }
+async function launchQuickChatTarget(target) {
+  if (fixture || interactionTest) {
+    fixtureOpenedLinks.push(target.url);
+    return { ok: true, status: 'opened-chat', mode: 'fixture-window', cookieScope: 'fixture' };
+  }
+  const result = await quickChatWindowHost?.open(target.url);
+  if (!result?.ok) return result || { ok: false, error: '快速聊天窗口暂不可用，请稍后重试' };
+  return { ...result, status: 'opened-chat', provider: target.provider };
+}
 async function openQuickChat(event, input) {
   if (!isMainFrame(event) || !trustedQuickChatAt || Date.now() - trustedQuickChatAt > 1000) {
     trustedQuickChatAt = 0;
@@ -556,11 +581,36 @@ async function openQuickChat(event, input) {
   const config = input === undefined ? QuickChatConfig.storedConfig(values()) : QuickChatConfig.parseChatConfig(input);
   const target = QuickChatConfig.resolveChatConfig(config);
   if (!target) return { ok: false, error: '快速聊天网址无效，请在设置中填写 HTTPS 地址' };
-  try {
-    if (fixture || interactionTest) fixtureOpenedLinks.push(target.url);
-    else await shell.openExternal(target.url);
-    return { ok: true, provider: target.provider };
-  } catch { return { ok: false, error: '系统默认浏览器无法打开该网址，请稍后重试' }; }
+  try { return await launchQuickChatTarget(target); }
+  catch { return { ok: false, error: '快速聊天窗口无法启动，请检查浏览器或重试' }; }
+}
+async function chooseDroppedFileAction(event, input) {
+  if (!isMainFrame(event)) return { ok: false, code: 'invalid-source', message: '不允许的本地操作来源' };
+  if (nativeShareHost?.active) return { ok: false, code: 'share-busy', message: '系统分享面板仍在使用中，请关闭后再试' };
+  return chooseDropAction(input, {
+    prompt: async ({ fileCount, canShare }) => {
+      if (fixture || interactionTest) return canShare ? 'share' : 'cancel';
+      const buttons = canShare ? ['打开快速聊天', '系统分享', '取消'] : ['打开快速聊天', '取消'];
+      const result = await dialog.showMessageBox(window, {
+        type: 'question', title: '文件拖放', buttons,
+        defaultId: 0, cancelId: buttons.length - 1, noLink: true,
+        message: canShare ? `已接收 ${fileCount} 个本地文件` : '没有检测到可分享的本地文件',
+        detail: canShare
+          ? '可打开快速聊天，或调出系统分享菜单。选择快速聊天不会自动上传文件。'
+          : '可以仍然打开快速聊天；如需系统分享，请从文件管理器重新拖入普通本地文件。',
+      });
+      if (result.response === 0) return 'quick-chat';
+      if (canShare && result.response === 1) return 'share';
+      return 'cancel';
+    },
+    share: paths => nativeShareHost.share(paths),
+    openQuickChat: async () => {
+      const target = QuickChatConfig.resolveChatConfig(QuickChatConfig.storedConfig(values()));
+      if (!target) return { ok: false, error: '快速聊天网址无效，请检查设置' };
+      const result = await launchQuickChatTarget(target);
+      return result?.ok ? { ...result, status: 'opened-chat', provider: target.provider } : result;
+    },
+  });
 }
 function resizeKeepingBottomRight(width, height) {
   if (!window || window.isDestroyed() || nativeDrag) return null;
@@ -579,6 +629,22 @@ function resizeWidgetAroundAnchor(width, height, requestedRatio = widgetAnchorRa
   const ratio = Number.isFinite(requestedRatio) && requestedRatio >= 0 && requestedRatio <= 1 ? requestedRatio : ROLE_ANCHOR_RATIO;
   const anchor = widgetAnchor || widgetScreenAnchor(current, widgetAnchorRatio);
   const target = resizeKeepingWidgetAnchor(current, width, height, workAreaFor(current), ratio, anchor, MIN_WIDGET_SIZE);
+  widgetAnchorRatio = ratio;
+  widgetAnchor = widgetScreenAnchor(target, ratio);
+  if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
+  window.setBounds(target);
+  scheduleFrameSave();
+  sendCursor(true);
+  updateNativeInputRouting();
+  return target;
+}
+function resizeWidgetAtWindowOrigin(width, height, requestedRatio = widgetAnchorRatio) {
+  if (!window || window.isDestroyed() || nativeDrag) return null;
+  const current = window.getBounds();
+  const ratio = Number.isFinite(requestedRatio) && requestedRatio >= 0 && requestedRatio <= 1 ? requestedRatio : ROLE_ANCHOR_RATIO;
+  const origin = widgetPositionOrigin || { x: current.x, y: current.y };
+  widgetPositionOrigin = origin;
+  const target = resizeKeepingWindowOrigin(current, width, height, workAreaFor(current), MIN_WIDGET_SIZE, origin);
   widgetAnchorRatio = ratio;
   widgetAnchor = widgetScreenAnchor(target, ratio);
   if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
@@ -685,7 +751,7 @@ function setWidgetSize(size) {
   if (!sameRequest) {
     lastWidgetSize = key;
     layoutReady = false;
-    resizeWidgetAroundAnchor(width, height, ratio);
+    resizeWidgetAtWindowOrigin(width, height, ratio);
   }
   // A duplicate renderer report must still confirm a native resize that may
   // have completed after the original setBounds call.
@@ -728,6 +794,7 @@ function endNativeDrag() {
   nativeDrag = null;
   if (completed) {
     const frame = window.getBounds();
+    widgetPositionOrigin = { x: frame.x, y: frame.y };
     widgetAnchor = { x: gesture.widgetAnchor.x + frame.x - gesture.frame.x, y: gesture.widgetAnchor.y + frame.y - gesture.frame.y };
     scheduleFrameSave();
   }
@@ -756,7 +823,7 @@ function handleDisplayChange() {
     pendingWidgetSize = null;
   const fixed = clampFrame(window.getBounds());
   const current = window.getBounds();
-  if (JSON.stringify(fixed) !== JSON.stringify(current)) window.setBounds(fixed);
+  if (JSON.stringify(fixed) !== JSON.stringify(current)) { window.setBounds(fixed); widgetPositionOrigin = { x: fixed.x, y: fixed.y }; }
   widgetAnchor = widgetScreenAnchor(fixed, widgetAnchorRatio);
   scheduleFrameSave();
 }
@@ -826,6 +893,9 @@ if (!lock) {
     });
     const frame = initialFrame();
     const savedGeometry = readWindowState();
+    widgetPositionOrigin = savedGeometry.version >= 3 && Number.isFinite(savedGeometry.positionOrigin?.x) && Number.isFinite(savedGeometry.positionOrigin?.y)
+      ? { x: Number(savedGeometry.positionOrigin.x), y: Number(savedGeometry.positionOrigin.y) }
+      : { x: frame.x, y: frame.y };
     widgetAnchorRatio = Number.isFinite(savedGeometry.widgetAnchorRatio) && savedGeometry.widgetAnchorRatio >= 0 && savedGeometry.widgetAnchorRatio <= 1 ? savedGeometry.widgetAnchorRatio : ROLE_ANCHOR_RATIO;
     widgetAnchor = widgetScreenAnchor(frame, widgetAnchorRatio);
     window = new BrowserWindow({
@@ -860,6 +930,7 @@ if (!lock) {
         try { save(path.join(dataDir, 'share-ui-diagnostic.json'), { platform: detail.platform, fileCount: detail.fileCount, fixture: !!detail.fixture, at: new Date().toISOString() }); } catch {}
       },
     });
+    quickChatWindowHost = createQuickChatWindowHost({ platform: process.platform, BrowserWindowImpl: BrowserWindow, fixture: fixture || interactionTest });
     markStartup('windowCreated');
     window.setMenuBarVisibility(false);
     applyAlwaysOnTop();
@@ -940,6 +1011,7 @@ if (!lock) {
     ipcMain.handle('whale-share-files', (event, paths) => isMainFrame(event)
       ? nativeShareHost.share(paths)
       : { ok: false, code: 'invalid-source', message: '不允许的本地操作来源' });
+    ipcMain.handle('whale-choose-drop-action', (event, paths) => chooseDroppedFileAction(event, paths));
     ipcMain.handle('whale-test-share-files', (event, paths) => layoutTest && isMainFrame(event)
       ? nativeShareHost.share(paths)
       : { ok: false, code: 'test-disabled', message: '仅测试构建允许此操作' });
@@ -1041,6 +1113,7 @@ if (!lock) {
       clearInterval(inputRoutingWatchdog);
       clearTimeout(frameSaveTimer);
       nativeShareHost?.close();
+      quickChatWindowHost?.close();
       globalShortcut.unregisterAll();
       screen.removeListener('display-metrics-changed', handleDisplayChange);
       screen.removeListener('display-removed', handleDisplayChange);

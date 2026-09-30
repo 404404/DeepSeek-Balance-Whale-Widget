@@ -57,7 +57,7 @@
     if (!standalone || !pet || !bridge.hitRegion) return;
     const rect = pet.getBoundingClientRect();
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
-    const margin = 4;
+    const margin = 5;
     const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-chat-btn-visible,.dshwv-menu.dshwv-menu-open')].filter(el => {
       try {
         if (!visible(el)) return false;

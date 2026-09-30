@@ -4,13 +4,13 @@ This note describes the Electron desktop changes introduced on `for-macdesktop` 
 
 ## Quick chat
 
-The compact chat button sits directly above the existing settings button and uses the existing widget hit-region reporting. Hover visibility is not an expanded-window signal. The user chooses ChatGPT, Grok, DeepSeek, or a custom HTTPS destination in the existing settings dialog. Custom URLs reject credentials, control characters, and non-HTTPS schemes. The native process validates the IPC sender, requires a recent trusted click, and calls the OS default browser; it does not create an embedded browser, send model prompts, or access quota credentials.
+The compact chat button sits above the existing settings button with a 22-DIP gap and appears when the pointer is within 5 DIP of the role image. Hover visibility is not an expanded-window signal. The default provider is DeepSeek; settings also offer ChatGPT, Grok, Doubao, Yuanbao, Qwen, or a custom HTTPS destination. Custom URLs reject credentials, control characters, and non-HTTPS schemes. The native process validates the IPC sender and requires a recent trusted click. When Chrome or Edge is the OS default HTTPS browser, it opens an address-bar-free app window through that browser, which uses its default browser profile. It never reads or copies browser cookies. Other browser defaults use an address-bar-free Electron window with the app's own persistent session, so that window may require a separate login. No model prompts are sent and quota credentials are not accessed.
 
 The first button placement and the idea of a separate menu-adjacent hit target were reviewed against fork demo commit `b8a5510` on `demo/macdesktop-quick-chat`. That demo is not used as a product implementation: product routing goes through the settings schema and a narrowly scoped native IPC action.
 
 ## Local file sharing
 
-External file drops are accepted only over the role image's hit area. Files dropped on chat/settings controls or editor sorting regions are not shared. The preload uses Electron `webUtils.getPathForFile`; the main process then canonicalizes and checks each path and accepts at most 20 readable regular files. Directories, missing files, and special entries receive explicit rejection results. File contents are not read and there is no upload endpoint in this flow.
+External file drops are accepted only over the role image's hit area. Files dropped on chat/settings controls or editor sorting regions are not shared. The preload uses Electron `webUtils.getPathForFile`; the main process then canonicalizes and checks each path and accepts at most 20 readable regular files. Directories, missing files, and special entries receive explicit rejection results. A native choice dialog offers Quick Chat, OS Share, or Cancel for validated files. If Electron cannot expose a local path, it still offers Quick Chat or Cancel and explains that the file must be re-dropped to use OS Share. Choosing Quick Chat never attaches or uploads files. File contents are not read and there is no upload endpoint in this flow.
 
 - macOS uses Electron `ShareMenu` with real local file paths (`filePaths`) and keeps the native menu callback separate from any claim about send/delivery.
 - Windows uses a small native C++/WinRT process. It obtains the window-scoped `DataTransferManager` through `IDataTransferManagerInterop`, registers `DataRequested`, gets a deferral while resolving `StorageFile` values, supplies storage items, and pumps the STA message queue until share completion/cancellation or a bounded timeout. Its `opened` status only means the OS accepted the request; it is not a delivery receipt. The helper is statically linked to the Visual C++ runtime and shipped as an unpacked resource next to `app.asar`.
@@ -19,7 +19,7 @@ The helper is built for the same target architecture as Electron. The two Window
 
 ## Position ownership
 
-Electron main owns the screen-space window and role-layout anchor. The renderer only reports its role layout box and local hit regions. Resize requests are calculated around the role-layout bottom-center ratio; root geometry and menu/expanded-surface geometry are not persisted as the user's compact widget position. During native drag or expanded editing surfaces, only the latest size request is retained and applied after that state ends. Hovering either side button does not resize the native window.
+Electron main owns the screen-space window and role-layout anchor. The renderer only reports its role layout box and local hit regions. User scale changes keep the compact native window's preferred top-left origin; the role root remains at local (0,0), so resizing cannot feed viewport limits back into the target size. If a larger frame exceeds the work area, only the minimum clamp is applied; the preferred origin is retained so shrinking restores the unclamped position without cumulative drift. Expanded editing surfaces continue to preserve the role's screen anchor. During native drag or expanded editing surfaces, only the latest size request is retained and applied after that state ends. Hovering either side button does not resize the native window.
 
 This is intentionally a small ownership change rather than a renderer rewrite. `desktop/standalone-interaction-model.cjs` supplies pure geometry functions; the packaged interaction harness checks the actual window/controller/renderer reports during repeated scale changes.
 
@@ -45,7 +45,7 @@ Synthetic Electron input and packaged-app launch are automated evidence, not OS-
 ## Security and packaging boundaries
 
 - Quick-chat configuration stores only provider/custom URL/name in the existing app configuration; it has no linkage to subscription Auth.
-- Preload exposes `webUtils.getPathForFile` only within the purpose-built `shareDroppedFiles` method; it does not expose general file read/write or shell execution.
+- Preload exposes `webUtils.getPathForFile` only within the purpose-built `chooseDroppedFileAction` method; it does not expose general file read/write or shell execution.
 - The external URL is revalidated in main and is never opened automatically at startup or after saving.
 - File paths are passed as argument-array items to the Windows helper (`shell: false`), not concatenated into a shell command. The helper never prints paths or file content.
 - Windows installers are current-user installs and are not Authenticode signed. macOS App bundles are ad-hoc signed but not Developer ID signed or notarized. Neither status is presented as platform trust verification.

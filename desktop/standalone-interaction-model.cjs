@@ -34,6 +34,15 @@ function resizeKeepingBottomRight(frame, width, height, area, min = 122) {
   }, area, min);
 }
 
+function resizeKeepingWindowOrigin(frame, width, height, area, min = 122, origin = { x: frame.x, y: frame.y }) {
+  return clampFrameToArea({
+    x: Number(origin?.x),
+    y: Number(origin?.y),
+    width,
+    height,
+  }, area, min);
+}
+
 function widgetScreenAnchor(frame, roleAnchorRatio = 0.70275) {
   return {
     x: Number(frame.x) + Number(frame.width) * roleAnchorRatio,
@@ -102,6 +111,7 @@ module.exports = {
   widgetSizeApplied,
   clampFrameToArea,
   resizeKeepingBottomRight,
+  resizeKeepingWindowOrigin,
   widgetScreenAnchor,
   resizeKeepingWidgetAnchor,
   screenMoved,

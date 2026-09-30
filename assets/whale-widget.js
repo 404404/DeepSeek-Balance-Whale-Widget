@@ -55,6 +55,7 @@
     // are mounted on document.body, so scrolling this panel does not clip them.
     styleEl.textContent += '\n.dshwv-menu{max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}';
     styleEl.textContent += '\n.dshwv-chat-btn{position:absolute;top:calc(40.55% - 26px);right:4px;width:26px;height:26px;border:0;border-radius:6px;background:rgba(32,49,112,.85);color:#fff;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;pointer-events:auto;z-index:3;opacity:0;visibility:hidden;transition:opacity .15s ease}.dshwv-chat-btn-visible{opacity:1;visibility:visible}.dshwv-chat-btn:hover{background:#203170}.dshwv-chat-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.dshwv-root.dshwv-left .dshwv-chat-btn{transform:scaleX(-1)}.dshwv-root.dshwv-share-drop-active .dshwv-img{filter:drop-shadow(0 0 6px rgba(20,107,112,.85))}';
+    styleEl.textContent += '\n.dshwv-chat-btn{top:calc(40.55% - 38px)}.dshwv-menu-btn{top:calc(40.55% + 10px)}';
     // 0.2.0 additions: the gray "!" button that reveals the FX explanation.
     styleEl.textContent += '\n.dshwv-fxicon{flex:0 0 auto;width:18px;height:18px;border-radius:50%;border:1px solid rgba(32,49,112,.25);background:rgba(32,49,112,.10);color:#4a5c95;font-size:11px;font-weight:700;line-height:1;padding:0;cursor:pointer;margin-right:2px}';
     styleEl.textContent += '\n.dshwv-fxicon:hover{background:rgba(32,49,112,.20);color:#203170}';
@@ -93,8 +94,8 @@
     chatBtn.setAttribute('aria-label', '快速聊天');
     chatBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.8A2.8 2.8 0 0 1 6.8 3h10.4A2.8 2.8 0 0 1 20 5.8v7.4a2.8 2.8 0 0 1-2.8 2.8h-5.5l-4.9 4v-4H6.8A2.8 2.8 0 0 1 4 13.2z"/><path d="M8 8h8M8 11h5"/></svg>';
     function quickChatConfig() {
-      try { return window.WhaleQuickChatConfig ? window.WhaleQuickChatConfig.parseChatConfig(localStorage.getItem('dshw-quick-chat')) : { provider: 'chatgpt' }; }
-      catch (err) { return { provider: 'chatgpt' }; }
+        try { return window.WhaleQuickChatConfig ? window.WhaleQuickChatConfig.parseChatConfig(localStorage.getItem('dshw-quick-chat')) : { provider: 'deepseek' }; }
+      catch (err) { return { provider: 'deepseek' }; }
     }
     function updateQuickChatTitle() {
       var config = quickChatConfig(), resolved = window.WhaleQuickChatConfig && window.WhaleQuickChatConfig.resolveChatConfig(config);
@@ -109,6 +110,8 @@
       try {
         var result = await window.whaleDesktop.openQuickChat();
         if (!result || !result.ok) window.whaleToast && window.whaleToast(result && result.error || '无法打开聊天网站，请检查快速聊天设置');
+        else if (result.cookieScope === 'default-browser-profile') window.whaleToast && window.whaleToast('已在' + (result.browser || '默认浏览器') + '应用窗口打开聊天，并复用默认登录资料');
+        else window.whaleToast && window.whaleToast('已打开快速聊天小窗；登录状态保存在本应用中');
       } catch (err) { window.whaleToast && window.whaleToast('无法打开聊天网站，请稍后重试'); }
     });
     updateQuickChatTitle();
@@ -11259,7 +11262,7 @@
       var width = root.offsetWidth, height = root.offsetHeight;
       return { left: origin.left, top: origin.top, right: origin.left + width, bottom: origin.top + height, width: width, height: height };
     }
-    function isWhaleHit(e) {
+    function isWhaleHit(e, hoverMargin) {
       if (!e || !img || !img.complete || !img.naturalWidth) return false;
       try {
         var top = document.elementFromPoint(e.clientX, e.clientY);
@@ -11271,7 +11274,8 @@
       // returned false for that short interval, so the native panel stayed
       // ignored and a click could never start.
       var rect = img.getBoundingClientRect();
-      return e.clientX >= rect.left && e.clientX < rect.right && e.clientY >= rect.top && e.clientY < rect.bottom;
+      var margin = Math.max(0, Number(hoverMargin) || 0);
+      return e.clientX >= rect.left - margin && e.clientX < rect.right + margin && e.clientY >= rect.top - margin && e.clientY < rect.bottom + margin;
     }
     function onDocPointerDown(e) {
       if (e.target && e.target.closest) {
@@ -11413,7 +11417,7 @@
         if (!menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible');
         return;
       }
-      var over = isWhaleHit(e);
+      var over = isWhaleHit(e, 5);
       setWidgetCursor(over ? 'grab' : '');
       chatBtn.classList.toggle('dshwv-chat-btn-visible', over || menuOpen);
       if (!menuBtnHide) menuBtn.classList.toggle('dshwv-menu-btn-visible', over || menuOpen);
@@ -11448,10 +11452,12 @@
       e.stopPropagation();
       root.classList.remove('dshwv-share-drop-active');
       var result;
-      try { result = await window.whaleDesktop.shareDroppedFiles(e.dataTransfer.files); }
+      try { result = await window.whaleDesktop.chooseDroppedFileAction(e.dataTransfer.files); }
       catch (err) { result = { ok: false, message: '系统分享面板无法打开，请重试' }; }
       finally { window.whaleDesktop && window.whaleDesktop.externalDropActive(false); }
-      if (result && result.ok) window.whaleToast && window.whaleToast('已打开系统分享面板；是否发送由系统决定');
+      if (result && result.ok && result.status === 'opened') window.whaleToast && window.whaleToast('已打开系统分享面板；是否发送由系统决定');
+      else if (result && result.ok && result.status === 'opened-chat') window.whaleToast && window.whaleToast('已打开快速聊天窗口；文件不会自动上传');
+      else if (result && result.ok && result.status === 'cancelled') return;
       else if (result && result.code !== 'untrusted-drop') window.whaleToast && window.whaleToast(result && result.message || '无法分享这些文件，请检查文件后重试');
     }
     document.addEventListener('dragover', onRoleFileDragOver, true);
