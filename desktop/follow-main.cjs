@@ -1,9 +1,13 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShortcut, shell, protocol, session, net } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShortcut, shell, protocol, session, net, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { UiStateStore } = require('./ui-state-store.cjs');
 const { shutdownCompanion } = require('./lifecycle.cjs');
 const { externalWebUrl } = require('./external-links.cjs');
+const { createNativeShareHost } = require('./native-share-host.cjs');
+const { chooseDropAction } = require('./drop-action.cjs');
+const QuickChatConfig = require('./quick-chat-config.cjs');
+const { createQuickChatWindowHost } = require('./quick-chat-window.cjs');
 const { pathToFileURL } = require('node:url');
 const root = path.resolve(__dirname, '..');
 const dataDir = process.argv.find(a => a.startsWith('--whale-data='))?.slice(13);
@@ -20,7 +24,7 @@ protocol.registerSchemesAsPrivileged([{ scheme: 'whale', privileges: { standard:
 fs.mkdirSync(path.join(dataDir, 'desktop-profile'), { recursive: true });
 app.setPath('userData', path.join(dataDir, 'desktop-profile'));
 const lock = app.requestSingleInstanceLock();
-let window, tray, dispatcher, bridge, lastHost = initialHost, owner = '', appliedBounds = '', rendererReady = false, quitting = false, manuallyHidden = false, hostHeartbeat = Date.now();
+let window, tray, dispatcher, bridge, nativeShareHost, quickChatWindowHost, lastHost = initialHost, owner = '', appliedBounds = '', rendererReady = false, quitting = false, manuallyHidden = false, hostHeartbeat = Date.now();
 const rendererErrors = [];
 const fixtureOpenedLinks = [];
 let hostSequence = -1;
@@ -32,7 +36,7 @@ const uiStore = new UiStateStore(stateFile);
 const values = () => uiStore.get();
 const storeValues = input => uiStore.set(input);
 let gpuStatus = null, inputEnabled = false, keyboardFocus = false, testCursor = null, lastCursor = '', presents = 0;
-let trustedGestureAt = 0;
+let trustedGestureAt = 0, trustedQuickChatAt = 0, externalDropActive = false;
 app.on('gpu-info-update', () => {
   gpuStatus = { hardwareAcceleration: app.isHardwareAccelerationEnabled(), features: app.getGPUFeatureStatus(), electron: process.versions.electron, chromium: process.versions.chrome };
   fs.promises.writeFile(path.join(dataDir, 'render-status.json'), JSON.stringify(gpuStatus, null, 2)).catch(() => {});
@@ -87,6 +91,53 @@ async function openWebLink(value, gestureRequired = true) {
     else await shell.openExternal(url);
     return true;
   } catch { return false; }
+}
+async function openQuickChat(event, input) {
+  if (!isMainFrame(event) || !trustedQuickChatAt || Date.now() - trustedQuickChatAt > 1000) {
+    trustedQuickChatAt = 0;
+    return { ok: false, error: '请直接点击快速聊天按钮后重试' };
+  }
+  trustedQuickChatAt = 0;
+  const config = input === undefined ? QuickChatConfig.storedConfig(values()) : QuickChatConfig.parseChatConfig(input);
+  const target = QuickChatConfig.resolveChatConfig(config);
+  if (!target) return { ok: false, error: '快速聊天网址无效，请检查设置' };
+  try {
+    let result;
+    if (fixture) { fixtureOpenedLinks.push(target.url); result = { ok: true, mode: 'fixture-window', cookieScope: 'fixture' }; }
+    else result = await quickChatWindowHost?.open(target.url);
+    return result?.ok ? { ...result, status: 'opened-chat', provider: target.provider } : result || { ok: false, error: '快速聊天窗口暂不可用，请稍后重试' };
+  } catch { return { ok: false, error: '快速聊天窗口无法启动，请检查浏览器或重试' }; }
+}
+async function chooseDroppedFileAction(event, input) {
+  if (!isMainFrame(event)) return { ok: false, code: 'invalid-source', message: '不允许的本地操作来源' };
+  if (nativeShareHost?.active) return { ok: false, code: 'share-busy', message: '系统分享面板仍在使用中，请关闭后再试' };
+  return chooseDropAction(input, {
+    prompt: async ({ fileCount, canShare }) => {
+      if (fixture) return canShare ? 'share' : 'cancel';
+      const buttons = canShare ? ['打开快速聊天', '系统分享', '取消'] : ['打开快速聊天', '取消'];
+      const result = await dialog.showMessageBox(window, {
+        type: 'question', title: '文件拖放', buttons, defaultId: 0,
+        cancelId: buttons.length - 1, noLink: true,
+        message: canShare ? `已接收 ${fileCount} 个本地文件` : '没有检测到可分享的本地文件',
+        detail: canShare ? '可打开快速聊天，或调出系统分享菜单。选择快速聊天不会自动上传文件。' : '可以仍然打开快速聊天；如需系统分享，请从文件管理器重新拖入普通本地文件。',
+      });
+      if (result.response === 0) return 'quick-chat';
+      if (canShare && result.response === 1) return 'share';
+      return 'cancel';
+    },
+    share: paths => nativeShareHost.share(paths),
+    openQuickChat: async () => {
+      const target = QuickChatConfig.resolveChatConfig(QuickChatConfig.storedConfig(values()));
+      if (!target) return { ok: false, error: '快速聊天网址无效，请检查设置' };
+      const result = await quickChatWindowHost?.open(target.url);
+      return result?.ok ? { ...result, status: 'opened-chat', provider: target.provider } : result || { ok: false, error: '快速聊天窗口暂不可用，请稍后重试' };
+    },
+  });
+}
+function applyInputRouting() {
+  if (!window || window.isDestroyed()) return;
+  const accept = inputEnabled || externalDropActive || !!nativeShareHost?.active;
+  try { window.setIgnoreMouseEvents(!accept, { forward: true }); } catch {}
 }
 async function setHost(host) {
   if (!host || typeof host.hostAlive !== 'boolean') return;
@@ -172,6 +223,8 @@ else {
     // Keep normal activation: Chromium's non-client handler consumes the first
     // mouse down (MA_NOACTIVATEANDEAT) when CanActivate/focusable is false.
     window = new BrowserWindow({ ...area, type: 'toolbar', transparent: true, frame: false, thickFrame: false, resizable: false, maximizable: false, fullscreenable: false, backgroundColor: '#00000000', hasShadow: false, skipTaskbar: true, show: false, title: 'API 余额小鲸鱼', webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required', additionalArguments: fixture ? ['--whale-render-test'] : [] } });
+    nativeShareHost = createNativeShareHost({ app, window, screen, platform: process.platform, fixture, onActive: applyInputRouting });
+    quickChatWindowHost = createQuickChatWindowHost({ platform: process.platform, BrowserWindowImpl: BrowserWindow, fixture });
     markStartup('windowCreated');
     window.once('ready-to-show', () => markStartup('frameReady'));
     if (fixture) window.webContents.on('console-message', (_event, ...args) => { const d = args[0]; if (typeof d === 'object' ? d.level === 'error' : d === 3) rendererErrors.push(typeof d === 'object' ? d.message : args[1]); });
@@ -204,6 +257,33 @@ else {
     ipcMain.on('whale-save-storage', (event, input) => { if (event.sender === window.webContents) storeValues(input); });
     ipcMain.on('whale-user-gesture', event => { if (isMainFrame(event)) trustedGestureAt = Date.now(); });
     ipcMain.handle('whale-open-external', (event, url) => isMainFrame(event) ? openWebLink(url) : false);
+    ipcMain.on('whale-quick-chat-gesture', event => { if (isMainFrame(event)) trustedQuickChatAt = Date.now(); });
+    ipcMain.handle('whale-open-quick-chat', (event, config) => openQuickChat(event, config));
+    ipcMain.handle('whale-save-chat-config', async (event, input) => {
+      if (!isMainFrame(event)) return { ok: false, error: '不允许的本地操作来源' };
+      const patch = QuickChatConfig.mergeStoredConfig(values(), input);
+      if (!patch) return { ok: false, error: '快速聊天网址无效：仅支持 HTTPS，且不能包含用户名或密码' };
+      const previous = values();
+      storeValues(patch);
+      try { await uiStore.flush(); return { ok: true, config: QuickChatConfig.storedConfig(values()) }; }
+      catch {
+        storeValues(previous);
+        try { await uiStore.flush(); } catch {}
+        return { ok: false, error: '快速聊天设置写入失败；原有设置未被替换' };
+      }
+    });
+    ipcMain.handle('whale-share-files', (event, paths) => isMainFrame(event)
+      ? nativeShareHost.share(paths)
+      : { ok: false, code: 'invalid-source', message: '不允许的本地操作来源' });
+    ipcMain.handle('whale-choose-drop-action', (event, paths) => chooseDroppedFileAction(event, paths));
+    ipcMain.handle('whale-test-share-files', (event, paths) => fixture && isMainFrame(event)
+      ? nativeShareHost.share(paths)
+      : { ok: false, code: 'test-disabled', message: '仅测试构建允许此操作' });
+    ipcMain.on('whale-external-drop-active', (event, active) => {
+      if (!isMainFrame(event) || typeof active !== 'boolean') return;
+      externalDropActive = active;
+      applyInputRouting();
+    });
     ipcMain.on('whale-ready', event => {
       if (event.sender !== window.webContents) return;
       markStartup('imageAndInputReady');
@@ -212,7 +292,7 @@ else {
     ipcMain.on('whale-interactive', (event, enabled) => {
       if (event.sender !== window.webContents || typeof enabled !== 'boolean' || enabled === inputEnabled) return;
       inputEnabled = enabled;
-      window.setIgnoreMouseEvents(!enabled, { forward: true });
+      applyInputRouting();
     });
     ipcMain.on('whale-keyboard-focus', (event, editing) => {
       if (event.sender === window.webContents && typeof editing === 'boolean') setKeyboardFocus(editing);
@@ -246,6 +326,8 @@ else {
     event.preventDefault();
     if (quitting) return;
     quitting = true;
+    nativeShareHost?.close();
+    quickChatWindowHost?.close();
     // Do not leave an unresponsive input surface over Codex while saving state.
     try { if (window && !window.isDestroyed()) { window.setIgnoreMouseEvents(true); window.hide(); } } catch {}
     let finished = false;

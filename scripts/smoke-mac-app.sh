@@ -4,18 +4,23 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="${1:-$ROOT/dist/AI Balance Whale.app}"
 OUT="${2:-$ROOT/qa-output/mac-smoke}"
+DMG="${3:-}"
+ARCH="${ARCH:-arm64}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
+APP="$(cd "$APP" && pwd -P)"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 PID=''
 DATA=''
 LOG=''
+MOUNT=''
+MOUNTED=0
 
 diagnose() {
   local data="${1:-$DATA}" log="${2:-$LOG}"
   echo "--- packaged app stdout/stderr ($log) ---" >&2
   cat "$log" >&2 || true
-  for name in desktop-error.json bridge-error.json renderer-gone.json startup-timings.json layout-diagnostic.json input-routing.json interaction-test.json renderer-errors.json; do
+  for name in desktop-error.json bridge-error.json renderer-gone.json startup-timings.json layout-diagnostic.json input-routing.json interaction-test.json renderer-errors.json runtime-environment.json; do
     if [[ -f "$data/$name" ]]; then
       echo "--- $data/$name ---" >&2
       cat "$data/$name" >&2 || true
@@ -31,7 +36,31 @@ stop_case() {
     PID=''
   fi
 }
-trap stop_case EXIT
+cleanup() {
+  stop_case
+  if [[ "$MOUNTED" == 1 ]]; then hdiutil detach "$MOUNT" -quiet || true; fi
+  [[ -z "$MOUNT" ]] || rmdir "$MOUNT" 2>/dev/null || true
+}
+trap cleanup EXIT
+
+if [[ -n "$DMG" ]]; then
+  [[ -f "$DMG" ]] || { echo "DMG missing: $DMG" >&2; exit 1; }
+  MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-smoke-mount.XXXXXX")"
+  hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$DMG" >/dev/null
+  MOUNTED=1
+  [[ -d "$MOUNT/AI Balance Whale.app" ]] || { echo 'Mounted DMG has no App bundle' >&2; exit 1; }
+  [[ -L "$MOUNT/Applications" ]] || { echo 'Mounted DMG has no Applications shortcut' >&2; exit 1; }
+  mkdir -p "$OUT/installed"
+  ditto "$MOUNT/AI Balance Whale.app" "$OUT/installed/AI Balance Whale.app"
+  hdiutil detach "$MOUNT" -quiet
+  MOUNTED=0
+  rmdir "$MOUNT" 2>/dev/null || true
+  MOUNT=''
+  diff -qr "$APP" "$OUT/installed/AI Balance Whale.app" || { echo 'App copied from DMG differs from the verified build bundle' >&2; exit 1; }
+  APP="$(cd "$OUT/installed/AI Balance Whale.app" && pwd -P)"
+  ARCH="$ARCH" VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}" bash scripts/verify-mac-app.sh "$APP"
+  printf 'DMG copy verification passed; launching extracted bundle: %s\n' "$APP"
+fi
 
 run_case() {
   local label="$1" scale="$2" legacy="$3"
@@ -42,8 +71,9 @@ run_case() {
   if [[ "$legacy" == 1 ]]; then
     printf '{"version":1,"frame":{"x":100,"y":100,"width":248,"height":274}}\n' > "$DATA/window-state.json"
   fi
-  ELECTRON_ENABLE_LOGGING=1 WHALE_DESKTOP_TEST=1 WHALE_HOME="$DATA" "$APP/Contents/MacOS/AI Balance Whale" \
-    --standalone --whale-render-test --whale-interaction-test --enable-logging=stderr --whale-data="$DATA" >"$LOG" 2>&1 &
+  mkdir -p "$DATA/codex-home"
+  ELECTRON_ENABLE_LOGGING=1 CODEX_HOME="$DATA/codex-home" WHALE_HOME="$DATA" "$APP/Contents/MacOS/AI Balance Whale" \
+    --whale-render-test --whale-interaction-test --whale-test-hang-size-config --enable-logging=stderr --whale-data="$DATA" >"$LOG" 2>&1 &
   PID=$!
   for _ in $(seq 1 90); do
     if [[ -f "$DATA/startup-timings.json" && -f "$DATA/layout-diagnostic.json" && -f "$DATA/input-routing.json" && -f "$DATA/interaction-test.json" ]]; then break; fi
@@ -58,7 +88,7 @@ run_case() {
   [[ ! -f "$DATA/desktop-error.json" ]] || { diagnose; exit 1; }
   [[ ! -f "$DATA/renderer-gone.json" ]] || { diagnose; exit 1; }
   [[ ! -f "$DATA/renderer-errors.json" ]] || { diagnose; echo "renderer script errors detected" >&2; exit 1; }
-  python3 - "$DATA/startup-timings.json" "$DATA/layout-diagnostic.json" "$DATA/input-routing.json" "$DATA/interaction-test.json" "$scale" "$legacy" <<'PYTEST'
+python3 - "$DATA/startup-timings.json" "$DATA/layout-diagnostic.json" "$DATA/input-routing.json" "$DATA/interaction-test.json" "$scale" "$legacy" "$DATA/runtime-environment.json" "$ARCH" "$APP/Contents/MacOS/AI Balance Whale" <<'PYTEST'
 import json, math, sys
 startup = json.load(open(sys.argv[1], encoding='utf-8'))
 diag = json.load(open(sys.argv[2], encoding='utf-8'))
@@ -66,12 +96,23 @@ routing = json.load(open(sys.argv[3], encoding='utf-8'))
 interaction = json.load(open(sys.argv[4], encoding='utf-8'))
 scale = float(sys.argv[5])
 legacy = sys.argv[6] == '1'
+runtime = json.load(open(sys.argv[7], encoding='utf-8'))
+target_arch = sys.argv[8]
+expected_executable = sys.argv[9]
+if runtime.get('arch') != target_arch:
+    raise SystemExit(f'packaged runtime architecture {runtime.get("arch")} does not match native target {target_arch}: {runtime}')
+if runtime.get('appPackaged') is not True:
+    raise SystemExit(f'smoke did not launch the packaged App: {runtime}')
+if runtime.get('executablePath') != expected_executable:
+    raise SystemExit('smoke executable path is not the expected extracted/installed bundle: expected=' + expected_executable + ' actual=' + str(runtime.get('executablePath')))
 if interaction.get('pass') is not True:
     raise SystemExit(f'packaged interaction regression failed: {interaction}')
 if interaction.get('osPointerValidated') is not False:
     raise SystemExit(f'interaction evidence must not claim OS pointer validation: {interaction}')
 if routing.get('mode') != 'native-screen-hit-region':
     raise SystemExit(f'unexpected input routing mode: {routing}')
+if routing.get('sizeConfigFetchBlocked') is not True:
+    raise SystemExit(f'smoke did not hold the asynchronous size-config response pending: {routing}')
 if not isinstance(routing.get('hitRegions'), list) or not routing['hitRegions']:
     raise SystemExit(f'missing native hit regions: {routing}')
 if not any(
@@ -121,7 +162,7 @@ if abs(nw - expected) > 3 or abs(nh - expected) > 3:
     raise SystemExit(f'native frame {nw}x{nh} does not match DOM {rw}x{rh}')
 if legacy and (nw < 300 or nh < 300):
     raise SystemExit(f'legacy 248x274 frame was not migrated: native={native}')
-print(f'{sys.argv[5]} packaged layout and interaction passed: root={rw:.0f}x{rh:.0f}, image={required(image,"width"):.0f}x{required(image,"height"):.0f}, native={nw:.0f}x{nh:.0f}')
+print(f'{sys.argv[5]} packaged layout and interaction passed: arch={runtime["arch"]}, root={rw:.0f}x{rh:.0f}, image={required(image,"width"):.0f}x{required(image,"height"):.0f}, native={nw:.0f}x{nh:.0f}')
 PYTEST
   stop_case
 }

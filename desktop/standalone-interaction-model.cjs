@@ -8,6 +8,13 @@ function targetWidgetSize(scale, { base = 250, min = 122, max = 625 } = {}) {
   return Math.max(min, Math.min(max, Math.round(raw)));
 }
 
+function widgetSizeApplied(requested, actual, area, min = 122, tolerance = 2) {
+  if (!requested || !actual || !area || ![requested.width, requested.height, actual.width, actual.height, area.width, area.height].every(finite)) return false;
+  const expectedWidth = Math.min(Math.max(min, Number(requested.width)), Math.max(min, Number(area.width)));
+  const expectedHeight = Math.min(Math.max(min, Number(requested.height)), Math.max(min, Number(area.height)));
+  return Math.abs(expectedWidth - Number(actual.width)) <= tolerance && Math.abs(expectedHeight - Number(actual.height)) <= tolerance;
+}
+
 function clampFrameToArea(frame, area, min = 122) {
   const width = Math.min(Math.max(min, Math.round(Number(frame.width))), Math.max(min, area.width));
   const height = Math.min(Math.max(min, Math.round(Number(frame.height))), Math.max(min, area.height));
@@ -24,6 +31,32 @@ function resizeKeepingBottomRight(frame, width, height, area, min = 122) {
     x: Number(frame.x) + Number(frame.width) - Number(width),
     y: Number(frame.y) + Number(frame.height) - Number(height),
     width, height,
+  }, area, min);
+}
+
+function resizeKeepingWindowOrigin(frame, width, height, area, min = 122, origin = { x: frame.x, y: frame.y }) {
+  return clampFrameToArea({
+    x: Number(origin?.x),
+    y: Number(origin?.y),
+    width,
+    height,
+  }, area, min);
+}
+
+function widgetScreenAnchor(frame, roleAnchorRatio = 0.70275) {
+  return {
+    x: Number(frame.x) + Number(frame.width) * roleAnchorRatio,
+    y: Number(frame.y) + Number(frame.height),
+  };
+}
+
+function resizeKeepingWidgetAnchor(frame, width, height, area, roleAnchorRatio = 0.70275, anchor = widgetScreenAnchor(frame, roleAnchorRatio), min = 122) {
+  if (!anchor || !finite(anchor.x) || !finite(anchor.y) || !finite(roleAnchorRatio) || roleAnchorRatio < 0 || roleAnchorRatio > 1) return clampFrameToArea({ ...frame, width, height }, area, min);
+  return clampFrameToArea({
+    x: Number(anchor.x) - Number(width) * roleAnchorRatio,
+    y: Number(anchor.y) - Number(height),
+    width,
+    height,
   }, area, min);
 }
 
@@ -58,23 +91,29 @@ function expandedSurfaceFromState(state = {}) {
   return !!(state.menuOpen || state.dialogOpen || state.editorOpen || state.maskOpen || state.listOpen);
 }
 
-function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = null) {
+function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = null, roleAnchorRatio = 0.70275) {
   const frameWidth = Math.round(Number(frame?.width) || 0);
   const frameHeight = Math.round(Number(frame?.height) || 0);
   const compactW = Math.round(Number(compactWidth) || 0);
   const compactH = Math.round(Number(compactHeight) || 0);
-  const desiredRight = finite(screenAnchor?.right) ? Number(screenAnchor.right) : Number(frame?.x || 0) + frameWidth;
-  const desiredBottom = finite(screenAnchor?.bottom) ? Number(screenAnchor.bottom) : Number(frame?.y || 0) + frameHeight;
+  const hasRoleAnchor = finite(screenAnchor?.x) && finite(screenAnchor?.y);
+  const ratio = hasRoleAnchor ? roleAnchorRatio : 1;
+  const desiredX = hasRoleAnchor ? Number(screenAnchor.x) : finite(screenAnchor?.right) ? Number(screenAnchor.right) : Number(frame?.x || 0) + frameWidth;
+  const desiredBottom = hasRoleAnchor ? Number(screenAnchor.y) : finite(screenAnchor?.bottom) ? Number(screenAnchor.bottom) : Number(frame?.y || 0) + frameHeight;
   return {
-    left: Math.max(0, Math.min(Math.max(0, frameWidth - compactW), Math.round(desiredRight - Number(frame?.x || 0) - compactW))),
+    left: Math.max(0, Math.min(Math.max(0, frameWidth - compactW), Math.round(desiredX - Number(frame?.x || 0) - compactW * ratio))),
     top: Math.max(0, Math.min(Math.max(0, frameHeight - compactH), Math.round(desiredBottom - Number(frame?.y || 0) - compactH))),
   };
 }
 
 module.exports = {
   targetWidgetSize,
+  widgetSizeApplied,
   clampFrameToArea,
   resizeKeepingBottomRight,
+  resizeKeepingWindowOrigin,
+  widgetScreenAnchor,
+  resizeKeepingWidgetAnchor,
   screenMoved,
   nativeDragMovement,
   cursorInRegions,
