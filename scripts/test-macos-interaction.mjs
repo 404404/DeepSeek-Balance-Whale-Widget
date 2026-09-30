@@ -16,12 +16,12 @@ const shrunk = model.resizeKeepingBottomRight(frame, 150, 150, area);
 assert.deepEqual(shrunk, { x: 1225, y: 725, width: 150, height: 150 });
 const grown = model.resizeKeepingBottomRight(shrunk, 625, 625, area);
 assert.deepEqual(grown, { x: 750, y: 250, width: 625, height: 625 });
-let fixedOrigin = { x: 900, y: 350, width: 375, height: 375 };
+let fixedOrigin = { x: 700, y: 200, width: 375, height: 375 };
 for (let cycle = 0; cycle < 20; cycle += 1) {
   for (const size of [150, 625, 250, 375]) {
     fixedOrigin = model.resizeKeepingWindowOrigin(fixedOrigin, size, size, area);
-    assert.equal(fixedOrigin.x, 900, 'scale must not move the native window origin horizontally');
-    assert.equal(fixedOrigin.y, 350, 'scale must not move the native window origin vertically');
+    assert.equal(fixedOrigin.x, 700, 'scale must not move the native window origin horizontally when work area permits');
+    assert.equal(fixedOrigin.y, 200, 'scale must not move the native window origin vertically when work area permits');
     assert.equal(fixedOrigin.width, size);
     assert.equal(fixedOrigin.height, size);
   }
