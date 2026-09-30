@@ -9575,6 +9575,11 @@
       snapCheck();
     }
     function snapCheck() {
+      // Standalone desktop geometry is owned by the native host. In
+      // particular, closing an expanded menu must not infer a new screen-side
+      // flip from the temporary expanded WebView viewport; that viewport is
+      // not the widget's screen coordinate space.
+      if (standaloneDesktop) return;
       if (!snapConfig || snapConfig.mode === 'off') return;
       var rect = whaleLayoutRect();
       var vp = viewport();
