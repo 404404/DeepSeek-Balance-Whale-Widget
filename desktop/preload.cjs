@@ -1,5 +1,4 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
-const { extractDroppedFilePaths } = require('./drop-paths.cjs');
 const saved = ipcRenderer.sendSync('whale-storage');
 const initialLayout = ipcRenderer.sendSync('whale-layout-config');
 try { for (const [key, value] of Object.entries(saved)) if (localStorage.getItem(key) == null) localStorage.setItem(key, value); } catch {}
@@ -51,7 +50,15 @@ const desktopBridge = {
   chooseDroppedFileAction: files => {
     if (!processIsTestMode() && (!trustedFileDropAt || Date.now() - trustedFileDropAt > 2000)) return Promise.resolve({ ok: false, code: 'untrusted-drop', message: '请从系统文件管理器将文件拖到人偶上' });
     trustedFileDropAt = 0;
-    const paths = extractDroppedFilePaths(files, file => webUtils.getPathForFile(file));
+    const paths = [];
+    if (files && typeof files[Symbol.iterator] === 'function') {
+      for (const file of Array.from(files).slice(0, 21)) {
+        try {
+          const filePath = webUtils.getPathForFile(file);
+          if (typeof filePath === 'string' && filePath.trim()) paths.push(filePath);
+        } catch {}
+      }
+    }
     return ipcRenderer.invoke('whale-choose-drop-action', paths);
   },
   externalDropActive: value => {

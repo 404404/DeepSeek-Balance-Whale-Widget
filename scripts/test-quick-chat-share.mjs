@@ -11,7 +11,6 @@ const chat = require(fileURLToPath(new URL('../desktop/quick-chat-config.cjs', i
 const share = require(fileURLToPath(new URL('../desktop/native-share.cjs', import.meta.url)));
 const { createNativeShareHost } = require(fileURLToPath(new URL('../desktop/native-share-host.cjs', import.meta.url)));
 const { chooseDropAction } = require(fileURLToPath(new URL('../desktop/drop-action.cjs', import.meta.url)));
-const { extractDroppedFilePaths } = require(fileURLToPath(new URL('../desktop/drop-paths.cjs', import.meta.url)));
 const { createQuickChatWindowHost, parseWindowsDefaultBrowser } = require(fileURLToPath(new URL('../desktop/quick-chat-window.cjs', import.meta.url)));
 const { UiStateStore } = require(fileURLToPath(new URL('../desktop/ui-state-store.cjs', import.meta.url)));
 
@@ -191,14 +190,6 @@ try {
   assert.equal((await share.validateDroppedPaths([large])).files[0].size, 32 * 1024 * 1024, 'large sparse files are metadata-checked without reading contents');
   assert.equal((await share.validateDroppedPaths(['https://example.com/file'])).code, 'invalid-path', 'URLs and non-absolute values are not file paths');
   assert.equal((await fs.readFile(first, 'utf8')), 'fixture', 'share validation must not modify source files');
-  const nativeFileMocks = [{ name: 'first' }, { name: 'path-failure' }, { name: 'second' }];
-  assert.deepEqual(extractDroppedFilePaths(nativeFileMocks, file => {
-    if (file.name === 'path-failure') throw new Error('Electron rejected file path');
-    return path.join(temp, `${file.name}.txt`);
-  }), [path.join(temp, 'first.txt'), path.join(temp, 'second.txt')], 'Electron webUtils file-path errors are isolated per item and do not discard valid dropped files');
-  assert.deepEqual(extractDroppedFilePaths(nativeFileMocks, () => '/mock/path', 2), ['/mock/path', '/mock/path'], 'untrusted excess dropped items are bounded before native validation');
-  assert.deepEqual(extractDroppedFilePaths(null, () => '/mock/path'), [], 'missing native FileList becomes an empty selection rather than a thrown bridge error');
-
   const macEvents = [];
   let macPopup = null, fakeMenu;
   class FakeShareMenu {

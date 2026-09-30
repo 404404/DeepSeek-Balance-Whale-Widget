@@ -122,7 +122,7 @@ function createQuickChatWindowHost({
     const browser = await detectBrowserImpl(platform, execFileImpl);
     if (browser && (platform === 'win32' || platform === 'darwin')) {
       const executable = platform === 'darwin'
-        ? path.join(browser.path, 'Contents', 'MacOS', browser.name === 'Chrome' ? 'Google Chrome' : 'Microsoft Edge')
+        ? path.posix.join(browser.path, 'Contents', 'MacOS', browser.name === 'Chrome' ? 'Google Chrome' : 'Microsoft Edge')
         : browser.path;
       const launched = await launchDetached(spawnImpl, executable, [`--app=${url}`, '--window-size=960,720', '--new-window'], platform);
       if (launched) return { ok: true, mode: 'browser-app', browser: browser.name, cookieScope: 'default-browser-profile' };
