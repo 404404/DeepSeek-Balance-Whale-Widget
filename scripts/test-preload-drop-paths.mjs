@@ -29,7 +29,7 @@ vm.runInNewContext(preloadSource, {
     if (name !== 'electron') throw new Error(`sandbox preload attempted unsupported require: ${name}`);
     return electron;
   },
-  process: { argv: ['electron', preloadPath, '--whale-render-test'], env: {} },
+  process: { argv: ['electron', preloadPath, '--whale-render-test', '--whale-interaction-test'], env: {} },
   document: { addEventListener: (...args) => listeners.push(args) },
   window: { addEventListener: (...args) => listeners.push(args) },
   localStorage: { getItem: () => null, setItem: () => {} },
