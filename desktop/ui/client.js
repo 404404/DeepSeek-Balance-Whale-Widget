@@ -156,6 +156,11 @@
   }
   window.addEventListener('whale-open-settings', openSettings);
   window.addEventListener('resize', placeSettingsDialog);
+  window.addEventListener('whale-native-root-offset', placeSettingsDialog);
+  if (typeof ResizeObserver === 'function') {
+    const dialogPlacementObserver = new ResizeObserver(() => requestAnimationFrame(placeSettingsDialog));
+    dialogPlacementObserver.observe(document.documentElement);
+  }
   $('settings-dialog').addEventListener('close', () => {
     clearInterval(subscriptionPoll);
     window.whaleDesktop?.surface?.(false, 'none');
