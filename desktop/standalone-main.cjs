@@ -170,7 +170,7 @@ function refreshTrayMenu() {
     { label: '人偶置顶', type: 'checkbox', checked: alwaysOnTop, click: item => setPinned(!!item.checked) },
     { label: '恢复人偶位置', click: restoreWidget },
     { type: 'separator' },
-    { label: '退出 AI Balance Whale', click: () => app.quit() },
+    { label: '退出 desktop-demo', click: () => app.quit() },
   ]));
 }
 function setPinned(next) {
@@ -1035,7 +1035,7 @@ if (!lock) {
       hasShadow: false,
       skipTaskbar: true,
       show: false,
-      title: 'AI Balance Whale',
+      title: 'desktop-demo',
       webPreferences: {
         preload: path.join(__dirname, 'preload.cjs'),
         contextIsolation: true,
@@ -1213,7 +1213,7 @@ if (!lock) {
     if (process.platform === 'darwin' && app.dock) app.dock.setIcon(icon);
     tray = new Tray(icon);
     if (process.platform === 'darwin' && typeof tray.setTemplateImage === 'function') tray.setTemplateImage(false);
-    tray.setToolTip('AI Balance Whale');
+    tray.setToolTip('desktop-demo');
     refreshTrayMenu();
     tray.on('double-click', toggle);
     globalShortcut.register(process.platform === 'darwin' ? 'Command+Option+W' : 'Control+Alt+W', toggle);

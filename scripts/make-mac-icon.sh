@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SOURCE="${1:-assets/DSniang1.png}"
-OUTPUT="${2:-build/AI Balance Whale.icns}"
+OUTPUT="${2:-build/desktop-demo.icns}"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "make-mac-icon.sh must run on macOS" >&2
   exit 2

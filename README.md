@@ -1,12 +1,12 @@
-# AI Balance Whale · Windows 与 macOS 独立桌面挂件
+# desktop-demo · Windows 与 macOS 独立桌面挂件
 
-AI Balance Whale 是一只常驻桌面的透明小鲸鱼挂件，沿用上游 `For-Codex` Electron 版本的角色、气泡、连续点击、拖动吸附、翻转、音效、菜单、素材管理和余额编辑器。桌面 App 可独立启动，不需要 Codex、DSH、Node.js 或浏览器才能看见和操作人偶。
+desktop-demo 是一只常驻桌面的透明小鲸鱼挂件，沿用上游 `For-Codex` Electron 版本的角色、气泡、连续点击、拖动吸附、翻转、音效、菜单、素材管理和余额编辑器。桌面 App 可独立启动，不需要 Codex、DSH、Node.js 或浏览器才能看见和操作人偶。
 
 本分支基于上游 `MeteorNOX/DeepSeek-Balance-Whale-Widget` 的 `For-Codex` 基线 `8c13a627120a175f6c92b3aeb12c99d392416ac7`。仓库归属与发布链接使用本 fork：<https://github.com/404404/DeepSeek-Balance-Whale-Widget>。
 
 ## 桌面版能力
 
-- 新增“快速聊天”按钮，默认 DeepSeek，也可选 ChatGPT、Grok、豆包、元宝、千问或自定义 HTTPS 网址。Chrome/Edge 为默认 HTTPS 浏览器时，以无地址栏的应用窗口打开并使用其默认浏览器配置文件；其它浏览器使用 AI Balance Whale 自己的持久会话，需在小窗单独登录。此功能与账户额度、API provider 和 Auth 登录无关。
+- 新增“快速聊天”按钮，默认 DeepSeek，也可选 ChatGPT、Grok、豆包、元宝、千问或自定义 HTTPS 网址。Chrome/Edge 为默认 HTTPS 浏览器时，以无地址栏的应用窗口打开并使用其默认浏览器配置文件；其它浏览器使用 desktop-demo 自己的持久会话，需在小窗单独登录。此功能与账户额度、API provider 和 Auth 登录无关。
 - 从 Finder 或 Windows 文件资源管理器把普通本地文件拖到人偶上，会先让用户选择“快速聊天”或“系统分享”，也可取消。快速聊天只打开聊天页面，不会自动上传拖入文件；系统分享只把经过验证的本地文件交给操作系统，不读取文件正文、不上传、不移动原文件，也不声称分享已送达。暂不接受文件夹和虚拟附件。
 - 独立桌面版覆盖 Windows x64、Windows ARM64、macOS Intel x64 和 macOS Apple Silicon ARM64；Windows 普通安装版独立启动，开发模式保留 Codex-follow 脚本入口。
 - macOS App 兼容下限为 macOS 11（由当前 Electron 36 runtime 决定）；Windows Share UI 需要受支持的 Windows 桌面环境。
@@ -57,15 +57,15 @@ npm test
 ARCH=x64 npm run build:mac       # 或 ARCH=arm64
 ARCH=x64 npm run verify:mac
 ARCH=x64 bash scripts/create-dmg.sh
-ARCH=x64 bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app'
+ARCH=x64 bash scripts/smoke-mac-app.sh 'dist/desktop-demo.app'
 ```
 
 Windows 打包需在对应原生架构的 Visual Studio Developer 环境中运行：
 
 ```powershell
 ./scripts/build-windows-share.ps1 -Arch x64 # ARM64 runner 使用 -Arch arm64
-./scripts/build-windows.ps1 -Arch x64 -Version 0.3.0-beta.5
-./scripts/smoke-windows-app.ps1 -AppDir 'dist/windows-x64/AI Balance Whale-win32-x64' -Arch x64 -OutputDir 'qa-output/windows-x64' -Installer 'dist/windows-x64/AI-Balance-Whale-windows-x64-v0.3.0-beta.5-setup.exe'
+./scripts/build-windows.ps1 -Arch x64 -Version 0.3.0-beta.7
+./scripts/smoke-windows-app.ps1 -AppDir 'dist/windows-x64/desktop-demo-win32-x64' -Arch x64 -OutputDir 'qa-output/windows-x64' -Installer 'dist/windows-x64/desktop-demo-windows-x64-v0.3.0-beta.7-setup.exe'
 ```
 
 `npm test` 包含语法、坐标模型、HTTPS 设置校验、文件路径拒绝规则、macOS ShareMenu／Windows helper 注入契约以及现有额度 Auth 回归。打包 smoke 会启动实际 `.app`／`.exe`，检查角色资源、命中区域、配置旧版窗口迁移、聊天按钮一次打开、快速连点与 20 轮同进程缩放；Windows 还测试安装到含空格路径后运行与卸载，macOS 验证 DMG 可挂载。`sendInputEvent` 是合成 Electron 输入，不是 OS 物理鼠标验收；GitHub-hosted runner 不验证系统分享面板中目标 App 的真实选择或文件收件结果。smoke 截图与诊断将作为 Actions artifacts 上传。Electron/Chromium 仍是安装包主体积，本次只报告体积，不移除运行时功能。

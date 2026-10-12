@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="${1:-$ROOT/dist/AI Balance Whale.app}"
+APP="${1:-$ROOT/dist/desktop-demo.app}"
 RELEASE_VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}"
 EXPECTED_VERSION="${BUNDLE_VERSION:-${RELEASE_VERSION%%-*}}"
 EXPECTED_BUILD="${BUILD_NUMBER:-1}"
 EXPECTED_ARCH="${ARCH:-arm64}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
 [[ -f "$APP/Contents/Resources/app.asar" ]] || { echo "app.asar missing" >&2; exit 1; }
-BINARY="$APP/Contents/MacOS/AI Balance Whale"
+BINARY="$APP/Contents/MacOS/desktop-demo"
 [[ -x "$BINARY" ]] || { echo "main executable missing" >&2; exit 1; }
 case "$EXPECTED_ARCH" in x64|x86_64) EXPECTED_ARCH=x86_64 ;; arm64|aarch64) EXPECTED_ARCH=arm64 ;; *) echo "unsupported expected arch: $EXPECTED_ARCH" >&2; exit 2 ;; esac
 lipo "$BINARY" -verify_arch "$EXPECTED_ARCH" || { echo "main executable is not $EXPECTED_ARCH: $(file "$BINARY")" >&2; exit 1; }

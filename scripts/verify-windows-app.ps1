@@ -5,7 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $AppDir = (Resolve-Path -LiteralPath $AppDir).Path
-$Exe = Join-Path $AppDir 'AI Balance Whale.exe'
+$Exe = Join-Path $AppDir 'desktop-demo.exe'
 $Asar = Join-Path $AppDir 'resources\app.asar'
 $ShareHelper = Join-Path $AppDir 'resources\whale-share.exe'
 foreach ($Required in @($Exe, $Asar, $ShareHelper)) {

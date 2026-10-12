@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="${1:-$ROOT/dist/AI Balance Whale.app}"
+APP="${1:-$ROOT/dist/desktop-demo.app}"
 OUT="${2:-$ROOT/qa-output/mac-smoke}"
 DMG="${3:-}"
 ARCH="${ARCH:-arm64}"
@@ -48,16 +48,16 @@ if [[ -n "$DMG" ]]; then
   MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-smoke-mount.XXXXXX")"
   hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$DMG" >/dev/null
   MOUNTED=1
-  [[ -d "$MOUNT/AI Balance Whale.app" ]] || { echo 'Mounted DMG has no App bundle' >&2; exit 1; }
+  [[ -d "$MOUNT/desktop-demo.app" ]] || { echo 'Mounted DMG has no App bundle' >&2; exit 1; }
   [[ -L "$MOUNT/Applications" ]] || { echo 'Mounted DMG has no Applications shortcut' >&2; exit 1; }
   mkdir -p "$OUT/installed"
-  ditto "$MOUNT/AI Balance Whale.app" "$OUT/installed/AI Balance Whale.app"
+  ditto "$MOUNT/desktop-demo.app" "$OUT/installed/desktop-demo.app"
   hdiutil detach "$MOUNT" -quiet
   MOUNTED=0
   rmdir "$MOUNT" 2>/dev/null || true
   MOUNT=''
-  diff -qr "$APP" "$OUT/installed/AI Balance Whale.app" || { echo 'App copied from DMG differs from the verified build bundle' >&2; exit 1; }
-  APP="$(cd "$OUT/installed/AI Balance Whale.app" && pwd -P)"
+  diff -qr "$APP" "$OUT/installed/desktop-demo.app" || { echo 'App copied from DMG differs from the verified build bundle' >&2; exit 1; }
+  APP="$(cd "$OUT/installed/desktop-demo.app" && pwd -P)"
   ARCH="$ARCH" VERSION="${VERSION:-$(node -p "require('$ROOT/package.json').version")}" bash scripts/verify-mac-app.sh "$APP"
   printf 'DMG copy verification passed; launching extracted bundle: %s\n' "$APP"
 fi
@@ -72,7 +72,7 @@ run_case() {
     printf '{"version":1,"frame":{"x":100,"y":100,"width":248,"height":274}}\n' > "$DATA/window-state.json"
   fi
   mkdir -p "$DATA/codex-home"
-  ELECTRON_ENABLE_LOGGING=1 CODEX_HOME="$DATA/codex-home" WHALE_HOME="$DATA" "$APP/Contents/MacOS/AI Balance Whale" \
+  ELECTRON_ENABLE_LOGGING=1 CODEX_HOME="$DATA/codex-home" WHALE_HOME="$DATA" "$APP/Contents/MacOS/desktop-demo" \
     --whale-render-test --whale-interaction-test --whale-test-hang-size-config --enable-logging=stderr --whale-data="$DATA" >"$LOG" 2>&1 &
   PID=$!
   for _ in $(seq 1 90); do
@@ -88,7 +88,7 @@ run_case() {
   [[ ! -f "$DATA/desktop-error.json" ]] || { diagnose; exit 1; }
   [[ ! -f "$DATA/renderer-gone.json" ]] || { diagnose; exit 1; }
   [[ ! -f "$DATA/renderer-errors.json" ]] || { diagnose; echo "renderer script errors detected" >&2; exit 1; }
-python3 - "$DATA/startup-timings.json" "$DATA/layout-diagnostic.json" "$DATA/input-routing.json" "$DATA/interaction-test.json" "$scale" "$legacy" "$DATA/runtime-environment.json" "$ARCH" "$APP/Contents/MacOS/AI Balance Whale" <<'PYTEST'
+python3 - "$DATA/startup-timings.json" "$DATA/layout-diagnostic.json" "$DATA/input-routing.json" "$DATA/interaction-test.json" "$scale" "$legacy" "$DATA/runtime-environment.json" "$ARCH" "$APP/Contents/MacOS/desktop-demo" <<'PYTEST'
 import json, math, sys
 startup = json.load(open(sys.argv[1], encoding='utf-8'))
 diag = json.load(open(sys.argv[2], encoding='utf-8'))

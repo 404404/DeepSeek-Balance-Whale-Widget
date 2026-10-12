@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $AppDir = (Resolve-Path -LiteralPath $AppDir).Path
 $OutputDir = [IO.Path]::GetFullPath($OutputDir)
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-$Exe = Join-Path $AppDir 'AI Balance Whale.exe'
+$Exe = Join-Path $AppDir 'desktop-demo.exe'
 if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { throw "Packaged executable missing: $Exe" }
 
 function Invoke-PackagedCase([string]$Label, [double]$Scale, [bool]$Legacy, [string]$Executable) {
@@ -93,7 +93,7 @@ if ($PortableZip) {
   if (Test-Path -LiteralPath $PortableRoot) { Remove-Item -LiteralPath $PortableRoot -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $PortableRoot | Out-Null
   Expand-Archive -LiteralPath $PortableZip -DestinationPath $PortableRoot -Force
-  $PortableExe = Join-Path $PortableRoot 'AI Balance Whale.exe'
+  $PortableExe = Join-Path $PortableRoot 'desktop-demo.exe'
   if (-not (Test-Path -LiteralPath $PortableExe -PathType Leaf)) { throw "Portable archive executable missing: $PortableExe" }
   Invoke-PackagedCase "portable-$Arch" 1.5 $true $PortableExe
 }
@@ -104,7 +104,7 @@ if ($Installer) {
   $InstallDir = Join-Path $InstallRoot 'Installed App With Spaces'
   $Install = Start-Process -FilePath $Installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=`"$InstallDir`"") -Wait -PassThru
   if ($Install.ExitCode -ne 0) { throw "Inno install failed: $($Install.ExitCode)" }
-  $InstalledExe = Join-Path $InstallDir 'AI Balance Whale.exe'
+  $InstalledExe = Join-Path $InstallDir 'desktop-demo.exe'
   if (-not (Test-Path -LiteralPath $InstalledExe -PathType Leaf)) { throw 'Installer did not install the app into the selected path' }
   Invoke-PackagedCase "installed-$Arch" 1.5 $true $InstalledExe
   $Uninstaller = Join-Path $InstallDir 'unins000.exe'

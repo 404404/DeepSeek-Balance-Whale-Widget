@@ -1,7 +1,7 @@
 {
-  "name": "api-balance-whale",
-  "version": "0.3.0-beta.6",
-  "description": "AI Balance Whale standalone cross-platform desktop widget, adapted from the upstream For-Codex Electron build.",
+  "name": "desktop-demo",
+  "version": "0.3.0-beta.7",
+  "description": "desktop-demo standalone cross-platform desktop widget, adapted from the upstream For-Codex Electron build.",
   "type": "module",
   "license": "MIT",
   "main": "desktop/main.cjs",

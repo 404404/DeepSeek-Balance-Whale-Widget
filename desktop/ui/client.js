@@ -19,7 +19,7 @@
     ...Object.entries(chatApi.PRESETS).map(([id, provider]) => new Option(provider.name, id)),
     new Option('自定义 HTTPS 地址', 'custom'),
   );
-  $('quick-chat-settings').querySelector('.help').textContent = '快速聊天在无地址栏的小窗中打开。默认 Chrome/Edge 可复用其默认浏览器资料；其他浏览器使用 AI Balance Whale 独立保存的登录会话。与额度和 Auth 相互独立。';
+  $('quick-chat-settings').querySelector('.help').textContent = '快速聊天在无地址栏的小窗中打开。默认 Chrome/Edge 可复用其默认浏览器资料；其他浏览器使用 desktop-demo 独立保存的登录会话。与额度和 Auth 相互独立。';
   function savedChatConfig() {
     try { return chatApi.parseChatConfig(localStorage.getItem(chatConfigKey)); }
     catch { return chatApi.parseChatConfig(null); }

@@ -29,7 +29,7 @@ fire_and_forget set_share_items(DataRequest request, DataRequestDeferral deferra
       auto file = co_await StorageFile::GetFileFromPathAsync(path);
       files.Append(file.as<IStorageItem>());
     }
-    request.Data().Properties().Title(L"AI Balance Whale 文件分享");
+    request.Data().Properties().Title(L"desktop-demo 文件分享");
     request.Data().SetStorageItems(files);
   } catch (...) {
     try { request.FailWithDisplayText(L"无法读取所选文件，请确认文件仍存在且当前账户有权访问。"); } catch (...) {}

@@ -180,15 +180,15 @@ jobs:
           $Version = '${{ needs.resolve-source.outputs.version }}'
           $Output = "dist\windows-${{ matrix.arch }}"
           ./scripts/build-windows.ps1 -Arch '${{ matrix.arch }}' -Version $Version -BuildNumber '${{ github.run_number }}' -OutputDir $Output
-          $App = Join-Path $PWD "$Output\AI Balance Whale-win32-${{ matrix.arch }}"
-          $Installer = Join-Path $PWD "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe"
-          $Portable = Join-Path $PWD "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip"
+          $App = Join-Path $PWD "$Output\desktop-demo-win32-${{ matrix.arch }}"
+          $Installer = Join-Path $PWD "$Output\desktop-demo-windows-${{ matrix.arch }}-v$Version-setup.exe"
+          $Portable = Join-Path $PWD "$Output\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip"
           ./scripts/smoke-windows-app.ps1 -AppDir $App -Arch '${{ matrix.arch }}' -OutputDir "qa-output\windows-${{ matrix.arch }}" -Installer $Installer -PortableZip $Portable
           $Stage = "qa-output\artifacts\${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path $Stage | Out-Null
-          Copy-Item "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe*" -Destination $Stage
-          Copy-Item "$Output\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip*" -Destination $Stage
-          node scripts/write-build-record.mjs '${{ matrix.target }}' "$Stage\build-record.json" "qa-output\windows-${{ matrix.arch }}\data-installed-${{ matrix.arch }}\runtime-environment.json" $App "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-setup.exe.sha256" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip" "$Stage\AI-Balance-Whale-windows-${{ matrix.arch }}-v$Version-portable.zip.sha256"
+          Copy-Item "$Output\desktop-demo-windows-${{ matrix.arch }}-v$Version-setup.exe*" -Destination $Stage
+          Copy-Item "$Output\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip*" -Destination $Stage
+          node scripts/write-build-record.mjs '${{ matrix.target }}' "$Stage\build-record.json" "qa-output\windows-${{ matrix.arch }}\data-installed-${{ matrix.arch }}\runtime-environment.json" $App "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-setup.exe" "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-setup.exe.sha256" "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip" "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip.sha256"
       - name: Build, verify, launch and mount-test macOS package
         if: matrix.os == 'macos'
         shell: bash
@@ -205,11 +205,11 @@ jobs:
           npm run build:mac
           npm run verify:mac
           bash scripts/create-dmg.sh
-          ARCH='${{ matrix.arch }}' bash scripts/smoke-mac-app.sh 'dist/AI Balance Whale.app' 'qa-output/mac-${{ matrix.arch }}' "dist/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg"
+          ARCH='${{ matrix.arch }}' bash scripts/smoke-mac-app.sh 'dist/desktop-demo.app' 'qa-output/mac-${{ matrix.arch }}' "dist/desktop-demo-macos-${VERSION}-${ARCH}.dmg"
           stage='qa-output/artifacts/${{ matrix.target }}'
           mkdir -p "$stage"
-          cp "dist/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg"* "$stage/"
-          node scripts/write-build-record.mjs '${{ matrix.target }}' "$stage/build-record.json" "qa-output/mac-${{ matrix.arch }}/data-legacy-248x274/runtime-environment.json" "qa-output/mac-${{ matrix.arch }}/installed/AI Balance Whale.app" "$stage/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg" "$stage/AI-Balance-Whale-macos-${VERSION}-${ARCH}.dmg.sha256"
+          cp "dist/desktop-demo-macos-${VERSION}-${ARCH}.dmg"* "$stage/"
+          node scripts/write-build-record.mjs '${{ matrix.target }}' "$stage/build-record.json" "qa-output/mac-${{ matrix.arch }}/data-legacy-248x274/runtime-environment.json" "qa-output/mac-${{ matrix.arch }}/installed/desktop-demo.app" "$stage/desktop-demo-macos-${VERSION}-${ARCH}.dmg" "$stage/desktop-demo-macos-${VERSION}-${ARCH}.dmg.sha256"
       - name: Upload exact release candidate and redacted diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -301,7 +301,7 @@ jobs:
           set -euo pipefail
           NOTES="$RUNNER_TEMP/release-notes.md"
           printf '%s\n' \
-            "AI Balance Whale $VERSION — Windows and macOS prerelease" \
+            "desktop-demo $VERSION — Windows and macOS prerelease" \
             "" \
             "Source commit: $SOURCE_SHA" \
             "" \
@@ -318,9 +318,9 @@ jobs:
           [[ "${#ASSETS[@]}" -eq 12 ]] || { echo "expected 12 per-artifact binary/sidecar files, got ${#ASSETS[@]}" >&2; exit 1; }
           ASSETS+=(release-inputs/SHA256SUMS release-inputs/manifest.json)
           if [[ "$PRERELEASE" == true ]]; then
-            gh release create "$TAG" --target "$SOURCE_SHA" --title "AI Balance Whale $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --prerelease --verify-tag "${ASSETS[@]}"
+            gh release create "$TAG" --target "$SOURCE_SHA" --title "desktop-demo $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --prerelease --verify-tag "${ASSETS[@]}"
           else
-            gh release create "$TAG" --target "$SOURCE_SHA" --title "AI Balance Whale $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --verify-tag "${ASSETS[@]}"
+            gh release create "$TAG" --target "$SOURCE_SHA" --title "desktop-demo $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --verify-tag "${ASSETS[@]}"
           fi
       - name: Download staged draft and byte-verify every uploaded asset
         env:
