@@ -8,8 +8,8 @@ ARCH="${ARCH:-arm64}"
 case "$ARCH" in x64|x86_64) ARCH=x64 ;; arm64|aarch64) ARCH=arm64 ;; *) echo "unsupported macOS arch: $ARCH" >&2; exit 2 ;; esac
 OUTPUT="${2:-$ROOT/dist/desktop-demo-macos-${VERSION}-${ARCH}.dmg}"
 [[ -d "$APP" ]] || { echo "App bundle missing: $APP" >&2; exit 1; }
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-dmg.XXXXXX")"
-MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-mount.XXXXXX")"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/desktop-demo-dmg.XXXXXX")"
+MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/desktop-demo-mount.XXXXXX")"
 ATTACHED=0
 cleanup() {
   if [[ "$ATTACHED" == 1 ]]; then hdiutil detach "$MOUNT" -quiet || true; fi
@@ -20,7 +20,20 @@ cp -R "$APP" "$STAGE/desktop-demo.app"
 ln -s /Applications "$STAGE/Applications"
 mkdir -p "$(dirname "$OUTPUT")"
 rm -f "$OUTPUT"
-hdiutil create -volname "desktop-demo ${VERSION}" -srcfolder "$STAGE" -ov -format UDZO "$OUTPUT" >/dev/null
+CREATED=0
+for attempt in 1 2 3; do
+  if hdiutil create -volname "desktop-demo ${VERSION}" -srcfolder "$STAGE" -ov -format UDZO "$OUTPUT" >/dev/null 2>"$MOUNT/create-error"; then
+    CREATED=1
+    break
+  fi
+  rm -f "$OUTPUT"
+  if [[ "$attempt" -lt 3 ]]; then sleep "$attempt"; fi
+done
+if [[ "$CREATED" != 1 ]]; then
+  cat "$MOUNT/create-error" >&2 || true
+  hdiutil info >&2 || true
+  exit 1
+fi
 for _ in 1 2 3 4 5; do
   if hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$OUTPUT" >/dev/null 2>"$MOUNT/attach-error"; then
     ATTACHED=1

@@ -1,6 +1,6 @@
 {
   "name": "desktop-demo",
-  "version": "0.3.0-beta.9",
+  "version": "0.3.0-beta.10",
   "description": "desktop-demo standalone cross-platform desktop widget, adapted from the upstream For-Codex Electron build.",
   "type": "module",
   "license": "MIT",

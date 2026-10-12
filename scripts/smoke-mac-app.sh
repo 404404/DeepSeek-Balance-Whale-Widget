@@ -45,7 +45,7 @@ trap cleanup EXIT
 
 if [[ -n "$DMG" ]]; then
   [[ -f "$DMG" ]] || { echo "DMG missing: $DMG" >&2; exit 1; }
-  MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-smoke-mount.XXXXXX")"
+  MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/desktop-demo-smoke-mount.XXXXXX")"
   hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$DMG" >/dev/null
   MOUNTED=1
   [[ -d "$MOUNT/desktop-demo.app" ]] || { echo 'Mounted DMG has no App bundle' >&2; exit 1; }

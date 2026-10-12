@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 2
 fi
 mkdir -p "$(dirname "$OUTPUT")"
-ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-icon.XXXXXX.iconset")"
+ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/desktop-demo-icon.XXXXXX.iconset")"
 trap 'rm -rf "$ICONSET"' EXIT
 for spec in \
   "16 icon_16x16.png" "32 icon_16x16@2x.png" \

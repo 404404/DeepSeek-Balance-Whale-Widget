@@ -672,7 +672,7 @@ function quickChatPlacement() {
     return sidePanelBounds({ x: anchor.x, y: anchorY }, area, { width: 560, height: 680, gap: 16, padding: 12 });
   } catch { return null; }
 }
-function sendNativePositionSettled() {
+function sendNativePositionSettled(dragPoint = null) {
   if (!window || window.isDestroyed() || !widgetAnchor) return;
   try {
     const frame = window.getBounds();
@@ -681,6 +681,7 @@ function sendNativePositionSettled() {
       anchor: { ...widgetAnchor },
       workArea: { x: area.x, y: area.y, width: area.width, height: area.height },
       compactWidth: compactWidgetDimensions()[0],
+      ...(dragPoint && Number.isFinite(dragPoint.x) ? { dragPoint: { x: dragPoint.x } } : {}),
     });
   } catch {}
 }
@@ -893,13 +894,14 @@ function cursorScreenPoint(fallback) {
 function startNativeDrag(point) {
   if (!window || window.isDestroyed() || !point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
   const cursor = cursorScreenPoint(point);
-  nativeDrag = { x: cursor.x, y: cursor.y, frame: window.getBounds(), widgetAnchor: widgetAnchor ? { ...widgetAnchor } : widgetScreenAnchor(window.getBounds(), widgetAnchorRatio), moved: false };
+  nativeDrag = { x: cursor.x, y: cursor.y, lastCursor: { x: cursor.x, y: cursor.y }, frame: window.getBounds(), widgetAnchor: widgetAnchor ? { ...widgetAnchor } : widgetScreenAnchor(window.getBounds(), widgetAnchorRatio), moved: false };
   setInputEnabled(true, 'native-drag');
 }
 function moveNativeDrag(point) {
   if (!nativeDrag || !window || window.isDestroyed()) return;
   const cursor = cursorScreenPoint(point);
   if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return;
+  nativeDrag.lastCursor = { x: cursor.x, y: cursor.y };
   const movement = nativeDragMovement({ x: nativeDrag.x, y: nativeDrag.y }, cursor, nativeDrag.moved, 3);
   nativeDrag.moved = movement.moved;
   if (!movement.shouldMove) return;
@@ -934,7 +936,7 @@ function endNativeDrag() {
   }
   updateNativeInputRouting();
   requestRendererLayout();
-  if (completed) sendNativePositionSettled();
+  if (completed) sendNativePositionSettled(gesture.lastCursor);
 }
 function writeLayoutDiagnostic() {
   if (!layoutTest || !lastLayoutDiagnostic || !window || window.isDestroyed()) return;

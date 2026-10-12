@@ -15,11 +15,11 @@
     return currentFlip ? localX < threshold + margin : localX < threshold - margin;
   }
 
-  function visibleArtCenterX(unflippedAnchorX, compactWidth, flipped, normalCenterRatio = 0.70275) {
-    if (![unflippedAnchorX, compactWidth, normalCenterRatio].every(finite) || Number(compactWidth) <= 0) return Number(unflippedAnchorX);
-    const mirroredCenterRatio = 1 - Number(normalCenterRatio);
-    const offset = Number(compactWidth) * (Number(normalCenterRatio) - mirroredCenterRatio);
-    return Number(unflippedAnchorX) - (flipped ? offset : 0);
+  function flipPointX(payload) {
+    const draggedX = Number(payload?.dragPoint?.x);
+    if (Number.isFinite(draggedX)) return draggedX;
+    const anchorX = Number(payload?.anchor?.x);
+    return Number.isFinite(anchorX) ? anchorX : null;
   }
 
   function flipThreshold(config, area, compactWidth = 0) {
@@ -37,5 +37,5 @@
     return oldCompactDefault ? width / 2 : Math.max(0, Math.min(width, pixel));
   }
 
-  return Object.freeze({ shouldFlipForPosition, visibleArtCenterX, flipThreshold });
+  return Object.freeze({ shouldFlipForPosition, flipPointX, flipThreshold });
 });

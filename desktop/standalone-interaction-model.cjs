@@ -1,6 +1,6 @@
 'use strict';
 
-const { shouldFlipForPosition, visibleArtCenterX, flipThreshold } = require('./ui/interaction-geometry.cjs');
+const { shouldFlipForPosition, flipPointX, flipThreshold } = require('./ui/interaction-geometry.cjs');
 
 function finite(value) { return Number.isFinite(Number(value)); }
 
@@ -147,6 +147,6 @@ module.exports = {
   surfaceRootOffset,
   sidePanelBounds,
   shouldFlipForPosition,
-  visibleArtCenterX,
+  flipPointX,
   flipThreshold,
 };

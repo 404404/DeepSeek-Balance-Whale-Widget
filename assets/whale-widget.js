@@ -9174,17 +9174,16 @@
     function applyNativePositionFlip(payload) {
       if (!standaloneDesktop || !payload || !payload.anchor || !payload.workArea) return;
       var area = payload.workArea;
-      var anchorX = Number(payload.anchor.x), areaX = Number(area.x), width = Number(area.width);
+      var interactionGeometry = window.WhaleInteractionGeometry;
+      var anchorX = interactionGeometry && interactionGeometry.flipPointX
+        ? interactionGeometry.flipPointX(payload)
+        : Number(payload.dragPoint && payload.dragPoint.x);
+      if (!isFinite(anchorX)) anchorX = Number(payload.anchor.x);
+      var areaX = Number(area.x), width = Number(area.width);
       if (![anchorX, areaX, width].every(isFinite) || width <= 0) return;
       if (!snapConfig || snapConfig.mode === 'off') {
         if (state.flip) { state.flip = false; express(); }
         return;
-      }
-      var interactionGeometry = window.WhaleInteractionGeometry;
-      if (interactionGeometry && interactionGeometry.visibleArtCenterX) {
-        anchorX = interactionGeometry.visibleArtCenterX(anchorX, Number(payload.compactWidth) || 0, !!state.flip);
-      } else if (state.flip && Number(payload.compactWidth) > 0) {
-        anchorX -= Number(payload.compactWidth) * 0.4055;
       }
       var flipAt = interactionGeometry && interactionGeometry.flipThreshold
         ? interactionGeometry.flipThreshold(snapConfig, area, Number(payload.compactWidth) || 0)
