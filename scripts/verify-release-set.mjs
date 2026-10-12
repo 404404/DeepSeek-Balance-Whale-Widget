@@ -22,6 +22,7 @@ if (foundRecords.length !== targets.length) throw new Error(`expected exactly ${
 const records = await Promise.all(foundRecords.map(async file => ({ file, value: JSON.parse(await fs.readFile(file, 'utf8')) })));
 const seen = new Set();
 const assets = [];
+const windowsInstallerTargets = [];
 async function hashFile(file) {
   const hash = crypto.createHash('sha256');
   for await (const chunk of createReadStream(file)) hash.update(chunk);
@@ -44,9 +45,10 @@ for (const { file, value: record } of records) {
     if (!stat?.isFile() || stat.size !== item.bytes || await hashFile(filePath) !== item.sha256) throw new Error(`artifact bytes/hash do not match build record: ${filePath}`);
     localArtifacts.push({ ...item, path: filePath, target: record.target });
   }
-  const requiredSuffixes = record.target.startsWith('windows-') ? ['-setup.exe', '-portable.zip'] : ['.dmg'];
+  const requiredSuffixes = record.target.startsWith('windows-') ? ['-portable.zip'] : ['.dmg'];
   for (const suffix of requiredSuffixes) if (!localArtifacts.some(item => item.name.endsWith(suffix))) throw new Error(`${record.target} is missing required artifact ${suffix}`);
   if (record.target.startsWith('windows-')) {
+    windowsInstallerTargets.push(localArtifacts.some(item => item.name.endsWith('-setup.exe')));
     for (const item of localArtifacts.filter(item => item.name.endsWith('.exe') || item.name.endsWith('.zip'))) {
       if (!localArtifacts.some(sidecar => sidecar.name === `${item.name}.sha256`)) throw new Error(`missing SHA-256 sidecar for ${item.name}`);
     }
@@ -54,8 +56,10 @@ for (const { file, value: record } of records) {
   assets.push(...localArtifacts);
 }
 for (const target of targets) if (!seen.has(target)) throw new Error(`missing build target: ${target}`);
+if (windowsInstallerTargets[0] !== windowsInstallerTargets[1]) throw new Error('Windows targets must both include installers or both be portable-only');
 const publishable = assets.filter(item => !item.name.endsWith('.sha256'));
-if (publishable.length !== 6) throw new Error(`expected six primary installation artifacts, got ${publishable.length}`);
+const expectedPrimaryArtifacts = 4 + (windowsInstallerTargets[0] ? 2 : 0);
+if (publishable.length !== expectedPrimaryArtifacts) throw new Error(`expected ${expectedPrimaryArtifacts} primary installation artifacts, got ${publishable.length}`);
 const releaseRoot = path.resolve(rootArg);
 const sums = publishable.map(item => `${item.sha256}  ${item.name}`).sort().join('\n') + '\n';
 await fs.writeFile(path.join(releaseRoot, 'SHA256SUMS'), sums);

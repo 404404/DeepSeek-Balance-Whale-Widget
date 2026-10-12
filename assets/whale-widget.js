@@ -55,7 +55,7 @@
     // are mounted on document.body, so scrolling this panel does not clip them.
     styleEl.textContent += '\n.dshwv-menu{max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}';
     styleEl.textContent += '\n.dshwv-chat-btn{position:absolute;top:calc(40.55% - 26px);right:4px;width:26px;height:26px;border:0;border-radius:6px;background:rgba(32,49,112,.85);color:#fff;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;pointer-events:auto;z-index:3;opacity:0;visibility:hidden;transition:opacity .15s ease}.dshwv-chat-btn-visible{opacity:1;visibility:visible}.dshwv-chat-btn:hover{background:#203170}.dshwv-chat-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.dshwv-root.dshwv-left .dshwv-chat-btn{transform:scaleX(-1)}.dshwv-root.dshwv-share-drop-active .dshwv-img{filter:drop-shadow(0 0 6px rgba(20,107,112,.85))}';
-    styleEl.textContent += '\n.dshwv-chat-btn{top:calc(40.55% - 38px)}.dshwv-menu-btn{top:calc(40.55% + 10px)}';
+    styleEl.textContent += '\n.dshwv-chat-btn{top:calc(40.55% - 38px)}.dshwv-menu-btn{top:calc(40.55% + 2px)}';
     styleEl.textContent += '\n.dshwv-snapmask{pointer-events:auto!important}.dshwv-snapwin,.dshwv-snapwin *{pointer-events:auto}.dshwv-snapgrid{max-width:calc(100vw - 32px)}.dshwv-snapcell{overflow:visible}.dshwv-snapnum{flex:0 0 58px}';
     // 0.2.0 additions: the gray "!" button that reveals the FX explanation.
     styleEl.textContent += '\n.dshwv-fxicon{flex:0 0 auto;width:18px;height:18px;border-radius:50%;border:1px solid rgba(32,49,112,.25);background:rgba(32,49,112,.10);color:#4a5c95;font-size:11px;font-weight:700;line-height:1;padding:0;cursor:pointer;margin-right:2px}';
@@ -110,10 +110,10 @@
       if (!window.whaleDesktop || typeof window.whaleDesktop.openQuickChat !== 'function') return;
       try {
         var result = await window.whaleDesktop.openQuickChat();
-        if (!result || !result.ok) window.whaleToast && window.whaleToast(result && result.error || '无法打开聊天网站，请检查快速聊天设置');
-        else if (result.cookieScope === 'default-browser-profile') window.whaleToast && window.whaleToast('已在' + (result.browser || '默认浏览器') + '应用窗口打开聊天，并复用默认登录资料');
-        else window.whaleToast && window.whaleToast('已打开快速聊天小窗；登录状态保存在本应用中');
-      } catch (err) { window.whaleToast && window.whaleToast('无法打开聊天网站，请稍后重试'); }
+        if (!result || !result.ok) window.whaleToast && window.whaleToast(result && result.error || '无法打开聊天网站，请检查快速聊天设置', 3000);
+        else if (result.cookieScope === 'default-browser-profile') window.whaleToast && window.whaleToast('已在' + (result.browser || '默认浏览器') + '应用窗口打开聊天，并复用默认登录资料', 3000);
+        else window.whaleToast && window.whaleToast('已打开快速聊天小窗；登录状态保存在本应用中', 3000);
+      } catch (err) { window.whaleToast && window.whaleToast('无法打开聊天网站，请稍后重试', 3000); }
     });
     updateQuickChatTitle();
     var menuBox = document.createElement('div');

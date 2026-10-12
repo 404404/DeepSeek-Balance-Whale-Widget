@@ -2,7 +2,7 @@
   'use strict';
   const $ = id => document.getElementById(id);
   let currentConfig = null, toastTimer, subscriptionPoll;
-  function toast(message) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, 6000); }
+  function toast(message, duration = 6000) { $('toast').textContent = message; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { $('toast').hidden = true; }, Math.max(1000, Number(duration) || 6000)); }
   window.whaleToast = toast;
   async function api(url, method = 'GET', body) {
     const response = await fetch(url, { method, headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store' });

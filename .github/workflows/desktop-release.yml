@@ -186,9 +186,8 @@ jobs:
           ./scripts/smoke-windows-app.ps1 -AppDir $App -Arch '${{ matrix.arch }}' -OutputDir "qa-output\windows-${{ matrix.arch }}" -Installer $Installer -PortableZip $Portable
           $Stage = "qa-output\artifacts\${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path $Stage | Out-Null
-          Copy-Item "$Output\desktop-demo-windows-${{ matrix.arch }}-v$Version-setup.exe*" -Destination $Stage
           Copy-Item "$Output\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip*" -Destination $Stage
-          node scripts/write-build-record.mjs '${{ matrix.target }}' "$Stage\build-record.json" "qa-output\windows-${{ matrix.arch }}\data-installed-${{ matrix.arch }}\runtime-environment.json" $App "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-setup.exe" "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-setup.exe.sha256" "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip" "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip.sha256"
+          node scripts/write-build-record.mjs '${{ matrix.target }}' "$Stage\build-record.json" "qa-output\windows-${{ matrix.arch }}\data-installed-${{ matrix.arch }}\runtime-environment.json" $App "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip" "$Stage\desktop-demo-windows-${{ matrix.arch }}-v$Version-portable.zip.sha256"
       - name: Build, verify, launch and mount-test macOS package
         if: matrix.os == 'macos'
         shell: bash
@@ -308,15 +307,15 @@ jobs:
             "Includes the quick-chat browser button, validated HTTPS service settings, local-file drag-and-drop into the operating-system share UI, and role-anchor-preserving resizing. Existing quota/auth and upstream widget interaction paths remain in place." \
             "Windows settings dialogs now keep the native surface expanded throughout resize transitions, preventing repeated window size and position changes." \
             "" \
-            "Targets: Windows x64 and ARM64; macOS Intel x64 and Apple Silicon ARM64. macOS App bundles are ad-hoc signed only and are not notarized. Windows installer is unsigned." \
+            "Downloads: Windows x64 and ARM64 portable ZIP builds; macOS Intel x64 and Apple Silicon ARM64 DMGs. No Windows installer is attached. macOS App bundles are ad-hoc signed only and are not notarized." \
             "" \
             "CI launches the packaged app on each native runner, exercises packaged renderer/native IPC input and same-process resize regressions, tests the Windows install/uninstall path and mounts each macOS DMG. OS-level pointer injection and actual Windows/macOS share-sheet delivery are not verified by headless CI; the share UI is user-mediated and the app does not report delivery success." \
             > "$NOTES"
           # The artifacts also carry full smoke diagnostics (including copies
           # of packages and installer fixtures). Publish only the exact files
           # staged by each target after its packaged-app acceptance passed.
-          ASSETS=( $(find release-inputs -type f -path '*/artifacts/*' \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.sha256' \) -print | sort) )
-          [[ "${#ASSETS[@]}" -eq 12 ]] || { echo "expected 12 per-artifact binary/sidecar files, got ${#ASSETS[@]}" >&2; exit 1; }
+          ASSETS=( $(find release-inputs -type f -path '*/artifacts/*' \( -name '*.dmg' -o -name '*.zip' -o -name '*.sha256' \) -print | sort) )
+          [[ "${#ASSETS[@]}" -eq 8 ]] || { echo "expected 8 per-artifact binary/sidecar files, got ${#ASSETS[@]}" >&2; exit 1; }
           ASSETS+=(release-inputs/SHA256SUMS release-inputs/manifest.json)
           if [[ "$PRERELEASE" == true ]]; then
             gh release create "$TAG" --target "$SOURCE_SHA" --title "desktop-demo $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --prerelease --verify-tag "${ASSETS[@]}"

@@ -193,6 +193,19 @@
     reportHitRegion(true);
     rendering.presentFor(220);
   });
+  if (standalone && bridge.onNativeSurfaceGeometry) bridge.onNativeSurfaceGeometry(value => {
+    if (!value || !Number.isSafeInteger(Number(value.id)) || !Number.isFinite(Number(value.left)) || !Number.isFinite(Number(value.top)) || !root) return;
+    // Move the pet inside the renderer before the host moves the native frame.
+    // The synchronous acknowledgement prevents Windows painting mismatched
+    // window and pet coordinates during a settings resize.
+    root.style.left = Math.round(Number(value.left)) + 'px';
+    root.style.top = Math.round(Number(value.top)) + 'px';
+    window.dispatchEvent(new Event('whale-native-root-offset'));
+    rendering.presentFor(220);
+    bridge.commitSurfaceGeometry(Number(value.id));
+    reportWidgetSize(true);
+    reportHitRegion(true);
+  });
   if (standalone && bridge.onNativePositionSettled) bridge.onNativePositionSettled(value => {
     window.dispatchEvent(new CustomEvent('whale-native-position-settled', { detail: value }));
   });

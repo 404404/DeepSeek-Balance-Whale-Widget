@@ -56,6 +56,8 @@ let manuallyHidden = false;
 let surfaceExpanded = false;
 let pendingSurface = null;
 let surfaceReason = 'none';
+let surfaceGeometrySequence = 0;
+let pendingSurfaceGeometry = null;
 let nativeDrag = null;
 let pendingWidgetSize = null;
 let quitting = false;
@@ -423,7 +425,8 @@ async function runInteractionTest() {
     const settingsSurfaceExpanded = surfaceExpanded;
     const settingsFrame = interactionFrame();
     const settingsSurfaceReason = surfaceReason;
-    const settingsLayoutPass = !!settingsLayout && settingsSurfaceExpanded && settingsLayout.dialog.left >= 0 && settingsLayout.dialog.top >= 0 && settingsLayout.dialog.right <= settingsLayout.viewport.width + 1 && settingsLayout.dialog.bottom <= settingsLayout.viewport.height + 1 && (settingsLayout.dialog.right <= settingsLayout.pet.left || settingsLayout.dialog.left >= settingsLayout.pet.right) && settingsLayout.buttonGap >= 10 && settingsLayout.overflow === 'auto';
+    const settingsPetAnchorStable = !!settingsLayout?.pet && !!closeFrame && !!closeMenuDom && !!settingsFrame && Math.abs(closeFrame.x + (closeMenuDom.left + closeMenuDom.right) / 2 - (settingsFrame.x + (settingsLayout.pet.left + settingsLayout.pet.right) / 2)) <= 3 && Math.abs(closeFrame.y + closeMenuDom.bottom - (settingsFrame.y + settingsLayout.pet.bottom)) <= 3;
+    const settingsLayoutPass = !!settingsLayout && settingsSurfaceExpanded && settingsPetAnchorStable && settingsLayout.dialog.left >= 0 && settingsLayout.dialog.top >= 0 && settingsLayout.dialog.right <= settingsLayout.viewport.width + 1 && settingsLayout.dialog.bottom <= settingsLayout.viewport.height + 1 && (settingsLayout.dialog.right <= settingsLayout.pet.left || settingsLayout.dialog.left >= settingsLayout.pet.right) && settingsLayout.buttonGap >= 10 && settingsLayout.overflow === 'auto';
     if (settingsOpened) await interactionRendererEval("(() => { const p=document.querySelector('[name=chatProvider]'),u=document.querySelector('[name=customChatUrl]'),n=document.querySelector('[name=customChatName]'),f=document.querySelector('#settings-form'); if(!p||!u||!n||!f)return false; p.value='custom'; p.dispatchEvent(new Event('change',{bubbles:true})); u.value='https://chat.example.test/from-settings'; u.dispatchEvent(new Event('input',{bubbles:true})); n.value='验收聊天'; n.dispatchEvent(new Event('input',{bubbles:true})); f.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); return true; })()");
     let savedChatConfig = QuickChatConfig.storedConfig(values());
     let settingsClosed = false;
@@ -435,7 +438,7 @@ async function runInteractionTest() {
     }
     const settingsSurface = await interactionRendererEval("(() => ({title:document.querySelector('.dshwv-chat-btn')?.title,stored:localStorage.getItem('dshw-quick-chat'),error:document.querySelector('#settings-error')?.textContent||''}))()");
     const settingsSavePass = defaultChatPass && settingsOpened && settingsLayoutPass && settingsClosed && savedChatConfig.provider === 'custom' && savedChatConfig.customUrl === 'https://chat.example.test/from-settings' && settingsSurface?.title?.includes('验收聊天') && fixtureOpenedLinks.length === openedBeforeSettings;
-    evidence.steps.push({ name: 'settings-dialog-stays-inside-native-surface-away-from-pet-with-separated-actions', pass: settingsLayoutPass, layout: settingsLayout, expanded: settingsSurfaceExpanded, surfaceReason: settingsSurfaceReason, nativeFrame: settingsFrame });
+    evidence.steps.push({ name: 'settings-dialog-stays-inside-native-surface-away-from-pet-with-separated-actions', pass: settingsLayoutPass, layout: settingsLayout, petAnchorStable: settingsPetAnchorStable, expanded: settingsSurfaceExpanded, surfaceReason: settingsSurfaceReason, nativeFrame: settingsFrame });
     evidence.steps.push({ name: 'quick-chat-settings-default-edit-save-without-opening-browser', pass: settingsSavePass, initialProvider: defaultChatConfig.provider, saved: savedChatConfig, surface: settingsSurface, openedLinks: fixtureOpenedLinks.slice(openedBeforeSettings) });
     await interactionDelay(250);
 
@@ -725,10 +728,9 @@ async function chooseDroppedFileAction(event, input) {
     },
   });
 }
-function resizeKeepingBottomRight(width, height) {
-  if (!window || window.isDestroyed() || nativeDrag) return null;
+function applyFrameBounds(target) {
+  if (!window || window.isDestroyed() || !target) return null;
   const current = window.getBounds();
-  const target = resizeFrameKeepingBottomRight(current, width, height, workAreaFor(current), MIN_WIDGET_SIZE);
   if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
   window.setBounds(target);
   scheduleFrameSave();
@@ -736,7 +738,15 @@ function resizeKeepingBottomRight(width, height) {
   updateNativeInputRouting();
   return target;
 }
-function resizeWidgetAroundAnchor(width, height, requestedRatio = widgetAnchorRatio) {
+function resizeKeepingBottomRight(width, height, deferBounds = false) {
+  if (!window || window.isDestroyed() || nativeDrag) return null;
+  const current = window.getBounds();
+  const target = resizeFrameKeepingBottomRight(current, width, height, workAreaFor(current), MIN_WIDGET_SIZE);
+  if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
+  if (!deferBounds) applyFrameBounds(target);
+  return target;
+}
+function resizeWidgetAroundAnchor(width, height, requestedRatio = widgetAnchorRatio, deferBounds = false) {
   if (!window || window.isDestroyed() || nativeDrag) return null;
   const current = window.getBounds();
   const ratio = Number.isFinite(requestedRatio) && requestedRatio >= 0 && requestedRatio <= 1 ? requestedRatio : ROLE_ANCHOR_RATIO;
@@ -745,10 +755,7 @@ function resizeWidgetAroundAnchor(width, height, requestedRatio = widgetAnchorRa
   widgetAnchorRatio = ratio;
   widgetAnchor = widgetScreenAnchor(target, ratio);
   if (target.width === current.width && target.height === current.height && target.x === current.x && target.y === current.y) return target;
-  window.setBounds(target);
-  scheduleFrameSave();
-  sendCursor(true);
-  updateNativeInputRouting();
+  if (!deferBounds) applyFrameBounds(target);
   return target;
 }
 function resizeWidgetAtWindowOrigin(width, height, requestedRatio = widgetAnchorRatio) {
@@ -785,13 +792,35 @@ function requestRendererLayout() {
     try { window.webContents.send('whale-layout-request'); } catch {}
   }
 }
-function sendNativeRootOffset(left, top) {
+function sendNativeRootOffset(left, top, force = false) {
   if (!window || window.isDestroyed() || !rendererReady) return;
   const value = { left: Math.round(Number(left) || 0), top: Math.round(Number(top) || 0) };
   const key = value.left + ',' + value.top;
-  if (key === lastNativeRootOffset) return;
+  if (!force && key === lastNativeRootOffset) return;
   lastNativeRootOffset = key;
   try { window.webContents.send('whale-native-root-offset', value); } catch {}
+}
+function sendSurfaceGeometry(target, left, top) {
+  if (!window || window.isDestroyed() || !target) return;
+  if (!rendererReady) {
+    applyFrameBounds(target);
+    sendNativeRootOffset(left, top);
+    return;
+  }
+  const id = ++surfaceGeometrySequence;
+  pendingSurfaceGeometry = { id, target };
+  lastNativeRootOffset = Math.round(Number(left) || 0) + ',' + Math.round(Number(top) || 0);
+  try {
+    window.webContents.send('whale-native-surface-geometry', {
+      id,
+      left: Math.round(Number(left) || 0),
+      top: Math.round(Number(top) || 0),
+    });
+  } catch {
+    pendingSurfaceGeometry = null;
+    applyFrameBounds(target);
+    sendNativeRootOffset(left, top, true);
+  }
 }
 function compactWidgetDimensions() {
   if (lastWidgetSize) {
@@ -812,23 +841,28 @@ function reportNativeWidgetSize(requestedWidth, requestedHeight) {
 }
 function applySurfaceGeometry(expanded) {
   if (!window || window.isDestroyed() || nativeDrag) return;
+  let target;
+  let offset;
   if (expanded) {
     const before = window.getBounds();
     const screenAnchor = widgetAnchor || widgetScreenAnchor(before, widgetAnchorRatio);
     const settingsDialog = String(surfaceReason).toLowerCase() === 'dialog';
-    const target = resizeKeepingBottomRight(settingsDialog ? 1120 : 760, settingsDialog ? 760 : 700) || window.getBounds();
+    target = resizeKeepingBottomRight(settingsDialog ? 1120 : 760, settingsDialog ? 760 : 700, true) || window.getBounds();
     const [width, height] = compactWidgetDimensions();
     // The role is laid out at the compact root's bottom/right. Preserve its
     // pre-expansion screen anchor when the expanded frame fits; when the
     // display edge clamps that frame, clamp the local offset to the feasible
     // part of the new content instead of moving the role to the new corner.
-    const offset = surfaceRootOffset(target, width, height, screenAnchor, widgetAnchorRatio);
-    sendNativeRootOffset(offset.left, offset.top);
+    offset = surfaceRootOffset(target, width, height, screenAnchor, widgetAnchorRatio);
   } else {
     const [width, height] = compactWidgetDimensions();
-    resizeWidgetAroundAnchor(width, height);
-    sendNativeRootOffset(0, 0);
+    target = resizeWidgetAroundAnchor(width, height, widgetAnchorRatio, true) || window.getBounds();
+    offset = { left: 0, top: 0 };
   }
+  // Apply the local root offset before committing the native frame resize.
+  // The renderer acknowledges synchronously after updating its DOM, so Windows
+  // cannot paint a frame with the expanded window origin and the old pet offset.
+  sendSurfaceGeometry(target, offset.left, offset.top);
   requestRendererLayout();
 }
 function setSurface(expanded, reason) {
@@ -1146,6 +1180,15 @@ if (!lock) {
       externalDropActive = active;
       updateNativeInputRouting();
     });
+    ipcMain.on('whale-commit-surface-geometry', (event, requestedId) => {
+      if (!isMainFrame(event) || !Number.isSafeInteger(requestedId) || !pendingSurfaceGeometry || pendingSurfaceGeometry.id !== requestedId) {
+        event.returnValue = false;
+        return;
+      }
+      const pending = pendingSurfaceGeometry;
+      pendingSurfaceGeometry = null;
+      event.returnValue = !!applyFrameBounds(pending.target);
+    });
     ipcMain.on('whale-ready', event => {
       if (event.sender !== window?.webContents) return;
       markStartup('imageAndInputReady');
@@ -1153,6 +1196,7 @@ if (!lock) {
       // A reload can happen while the menu surface is expanded. Re-send the
       // current local root offset to the new DOM instead of relying on a stale
       // renderer cache.
+      lastNativeRootOffset = '';
       if (surfaceExpanded) {
         const [width, height] = compactWidgetDimensions();
         const bounds = window.getContentBounds();

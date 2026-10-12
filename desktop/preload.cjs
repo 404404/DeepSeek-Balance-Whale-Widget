@@ -35,6 +35,8 @@ const desktopBridge = {
   onLayoutRequest: callback => ipcRenderer.on('whale-layout-request', () => callback()),
   onNativeWidgetSize: callback => ipcRenderer.on('whale-native-widget-size', (_event, value) => callback(value)),
   onNativeRootOffset: callback => ipcRenderer.on('whale-native-root-offset', (_event, value) => callback(value)),
+  onNativeSurfaceGeometry: callback => ipcRenderer.on('whale-native-surface-geometry', (_event, value) => callback(value)),
+  commitSurfaceGeometry: id => ipcRenderer.sendSync('whale-commit-surface-geometry', Number(id)),
   onNativePositionSettled: callback => ipcRenderer.on('whale-native-position-settled', (_event, value) => callback(value)),
   refreshFlipFromPosition: () => ipcRenderer.send('whale-position-recheck'),
   surface: (expanded, reason) => ipcRenderer.send('whale-surface', { expanded: !!expanded, reason: String(reason || '') }),
