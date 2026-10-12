@@ -150,12 +150,16 @@
       const prices = currentConfig.models[model] || {};
       for (const [name, key] of [['priceInput', 'input'], ['priceCached', 'cachedInput'], ['priceOutput', 'output'], ['priceWrite', 'cacheWrite']]) element(name).value = prices[key] ?? '';
       $('settings-error').hidden = true; $('settings-dialog').showModal(); placeSettingsDialog();
+      window.whaleDesktop?.surface?.(true, 'dialog');
       if (await paintSubscriptions()) watchSubscriptions();
     } catch (error) { toast(error.message); }
   }
   window.addEventListener('whale-open-settings', openSettings);
   window.addEventListener('resize', placeSettingsDialog);
-  $('settings-dialog').addEventListener('close', () => clearInterval(subscriptionPoll));
+  $('settings-dialog').addEventListener('close', () => {
+    clearInterval(subscriptionPoll);
+    window.whaleDesktop?.surface?.(false, 'none');
+  });
   for (const id of ['close-settings', 'cancel-settings']) $(id).addEventListener('click', () => $('settings-dialog').close());
   form.addEventListener('submit', async event => {
     event.preventDefault();
