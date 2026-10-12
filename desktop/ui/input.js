@@ -43,10 +43,17 @@
   }
   function updateSurface() {
     if (!standalone) return;
+    // A modal dialog remains an expanded surface for its entire open lifetime.
+    // On Windows, checkVisibility() can briefly report false while Electron is
+    // resizing the native window for that dialog; treating that transient result
+    // as a close collapses the window, then expands it again on the next DOM
+    // update, making the whole widget jump repeatedly.
+    const openDialog = document.querySelector('dialog[open]');
     const active = [...document.querySelectorAll(expandedSurfaces)].find(el =>
       el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && getComputedStyle(el).pointerEvents !== 'none');
-    const next = !!active;
-    const reason = active ? String(active.className || active.tagName || 'expanded-surface').slice(0, 80) : 'none';
+    const surface = openDialog || active;
+    const next = !!surface;
+    const reason = !surface ? 'none' : surface === openDialog ? 'dialog' : String(surface.className || surface.tagName || 'expanded-surface').slice(0, 80);
     if (next !== surfaceExpanded || reason !== (surfaceExpanded ? lastSurfaceReason : 'none')) {
       surfaceExpanded = next;
       lastSurfaceReason = reason;

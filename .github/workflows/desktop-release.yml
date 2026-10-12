@@ -306,6 +306,7 @@ jobs:
             "Source commit: $SOURCE_SHA" \
             "" \
             "Includes the quick-chat browser button, validated HTTPS service settings, local-file drag-and-drop into the operating-system share UI, and role-anchor-preserving resizing. Existing quota/auth and upstream widget interaction paths remain in place." \
+            "Windows settings dialogs now keep the native surface expanded throughout resize transitions, preventing repeated window size and position changes." \
             "" \
             "Targets: Windows x64 and ARM64; macOS Intel x64 and Apple Silicon ARM64. macOS App bundles are ad-hoc signed only and are not notarized. Windows installer is unsigned." \
             "" \
