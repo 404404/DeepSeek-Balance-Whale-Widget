@@ -169,7 +169,6 @@
   }
   $('settings-dialog').addEventListener('close', () => {
     clearInterval(subscriptionPoll);
-    window.whaleDesktop?.surface?.(false, 'none');
   });
   for (const id of ['close-settings', 'cancel-settings']) $(id).addEventListener('click', () => $('settings-dialog').close());
   form.addEventListener('submit', async event => {

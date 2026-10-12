@@ -440,8 +440,9 @@ async function runInteractionTest() {
     const settingsSavePass = defaultChatPass && settingsOpened && settingsLayoutPass && settingsClosed && savedChatConfig.provider === 'custom' && savedChatConfig.customUrl === 'https://chat.example.test/from-settings' && settingsSurface?.title?.includes('验收聊天') && fixtureOpenedLinks.length === openedBeforeSettings;
     evidence.steps.push({ name: 'settings-dialog-stays-inside-native-surface-away-from-pet-with-separated-actions', pass: settingsLayoutPass, layout: settingsLayout, petAnchorStable: settingsPetAnchorStable, expanded: settingsSurfaceExpanded, surfaceReason: settingsSurfaceReason, nativeFrame: settingsFrame });
     evidence.steps.push({ name: 'quick-chat-settings-default-edit-save-without-opening-browser', pass: settingsSavePass, initialProvider: defaultChatConfig.provider, saved: savedChatConfig, surface: settingsSurface, openedLinks: fixtureOpenedLinks.slice(openedBeforeSettings) });
-    await interactionDelay(250);
 
+    // Open the next expanded surface immediately. The dialog close event can
+    // arrive after another overlay opens; current DOM state must remain owner.
     await interactionRendererEval("window.__whaleRenderTest?.openSnap()");
     let snapModalOpen = false;
     for (let i = 0; i < 80; i += 1) {
