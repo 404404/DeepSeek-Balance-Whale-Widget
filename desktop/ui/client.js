@@ -52,17 +52,22 @@
     const panelWidth = Math.max(1, Math.min(690, window.innerWidth - inset * 2, freeWidth > 0 ? freeWidth : window.innerWidth - inset * 2));
     dialog.style.width = `${Math.round(panelWidth)}px`;
     dialog.classList.toggle('settings-narrow', panelWidth < 620);
+    dialog.style.position = 'fixed';
+    dialog.style.margin = '0';
+    dialog.style.right = 'auto';
+    dialog.style.bottom = 'auto';
+    dialog.style.transform = 'none';
+    // First remove the browser's modal centering, then measure the final width
+    // and scroll-limited height. Measuring before this reset can use a stale
+    // pre-resize rect and place a tall settings dialog below a screen edge.
+    dialog.style.left = `${inset}px`;
+    dialog.style.top = `${inset}px`;
     const sizedRect = dialog.getBoundingClientRect();
     const maxLeft = Math.max(inset, window.innerWidth - sizedRect.width - inset);
     const maxTop = Math.max(inset, window.innerHeight - sizedRect.height - inset);
     const left = onRight ? inset : maxLeft;
     const centerY = petRect ? (petRect.top + petRect.bottom) / 2 : window.innerHeight / 2;
     const top = Math.max(inset, Math.min(centerY - sizedRect.height / 2, maxTop));
-    dialog.style.position = 'fixed';
-    dialog.style.margin = '0';
-    dialog.style.right = 'auto';
-    dialog.style.bottom = 'auto';
-    dialog.style.transform = 'none';
     dialog.style.left = `${Math.round(left)}px`;
     dialog.style.top = `${Math.round(top)}px`;
   }
@@ -160,6 +165,7 @@
   if (typeof ResizeObserver === 'function') {
     const dialogPlacementObserver = new ResizeObserver(() => requestAnimationFrame(placeSettingsDialog));
     dialogPlacementObserver.observe(document.documentElement);
+    dialogPlacementObserver.observe($('settings-dialog'));
   }
   $('settings-dialog').addEventListener('close', () => {
     clearInterval(subscriptionPoll);
