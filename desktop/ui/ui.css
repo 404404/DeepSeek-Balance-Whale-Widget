@@ -10,6 +10,13 @@
 .desktop .dshwv-img{image-rendering:auto;backface-visibility:hidden}
 .desktop .dshwv-pop svg{shape-rendering:geometricPrecision}
 .desktop .dshwv-text{transition:opacity .16s ease,transform .3s ease;isolation:isolate;overflow:visible}
+
+/* Keep the modal usable in the constrained native surface at any screen edge. */
+dialog{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow-x:hidden;overflow-y:auto}
+.dialog-actions{display:flex;justify-content:flex-end;align-items:center;gap:14px;margin-top:24px;padding-top:16px;border-top:1px solid #e5eeeb}
+.dialog-actions button{min-width:104px}
+.settings-narrow .field-grid{grid-template-columns:1fr}
+@supports not (height:100dvh){dialog{max-height:calc(100vh - 24px)}}
 .desktop .dshwv-pop.dshwv-pop-open .dshwv-text{transition:opacity .16s ease .36s,transform .3s ease}
 .dshwv-frame{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;will-change:opacity;overflow:visible}
 .desktop .dshwv-frame .dshwv-gif{position:static;left:auto;top:auto;transform:none;opacity:1;transition:none;max-width:calc(var(--dshw-u) * 560);max-height:calc(var(--dshw-u) * 400)}

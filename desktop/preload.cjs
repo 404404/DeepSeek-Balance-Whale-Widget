@@ -35,6 +35,8 @@ const desktopBridge = {
   onLayoutRequest: callback => ipcRenderer.on('whale-layout-request', () => callback()),
   onNativeWidgetSize: callback => ipcRenderer.on('whale-native-widget-size', (_event, value) => callback(value)),
   onNativeRootOffset: callback => ipcRenderer.on('whale-native-root-offset', (_event, value) => callback(value)),
+  onNativePositionSettled: callback => ipcRenderer.on('whale-native-position-settled', (_event, value) => callback(value)),
+  refreshFlipFromPosition: () => ipcRenderer.send('whale-position-recheck'),
   save: values => ipcRenderer.send('whale-save-storage', values),
   openExternal: value => {
     if (!trustedClickAt || Date.now() - trustedClickAt > 1000 || !navigator.userActivation.isActive || typeof value !== 'string') return Promise.resolve(false);

@@ -1,5 +1,7 @@
 'use strict';
 
+const { shouldFlipForPosition, flipThreshold } = require('./ui/interaction-geometry.cjs');
+
 function finite(value) { return Number.isFinite(Number(value)); }
 
 function targetWidgetSize(scale, { base = 250, min = 122, max = 625 } = {}) {
@@ -106,6 +108,30 @@ function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = nu
   };
 }
 
+function sidePanelBounds(anchor, area, {
+  width = 560, height = 680, gap = 16, padding = 12,
+} = {}) {
+  if (!anchor || !area || ![anchor.x, anchor.y, area.x, area.y, area.width, area.height, width, height, gap, padding].every(finite)) return null;
+  const areaX = Number(area.x), areaY = Number(area.y);
+  const areaWidth = Math.max(1, Number(area.width)), areaHeight = Math.max(1, Number(area.height));
+  const inset = Math.max(0, Math.min(Number(padding), Math.min(areaWidth, areaHeight) / 2));
+  const panelWidth = Math.min(Math.max(1, Number(width)), Math.max(1, areaWidth - inset * 2));
+  const panelHeight = Math.min(Math.max(1, Number(height)), Math.max(1, areaHeight - inset * 2));
+  const preferred = Number(anchor.x) >= areaX + areaWidth / 2 ? 'left' : 'right';
+  const candidates = [preferred, preferred === 'left' ? 'right' : 'left'];
+  const available = side => side === 'left'
+    ? Number(anchor.x) - Number(gap) - panelWidth >= areaX + inset
+    : Number(anchor.x) + Number(gap) + panelWidth <= areaX + areaWidth - inset;
+  const side = candidates.find(available) || preferred;
+  const proposedX = side === 'left' ? Number(anchor.x) - Number(gap) - panelWidth : Number(anchor.x) + Number(gap);
+  const proposedY = Number(anchor.y) - panelHeight / 2;
+  return {
+    x: Math.round(Math.max(areaX + inset, Math.min(proposedX, areaX + areaWidth - inset - panelWidth))),
+    y: Math.round(Math.max(areaY + inset, Math.min(proposedY, areaY + areaHeight - inset - panelHeight))),
+    width: Math.round(panelWidth), height: Math.round(panelHeight), side,
+  };
+}
+
 module.exports = {
   targetWidgetSize,
   widgetSizeApplied,
@@ -119,4 +145,7 @@ module.exports = {
   cursorInRegions,
   expandedSurfaceFromState,
   surfaceRootOffset,
+  sidePanelBounds,
+  shouldFlipForPosition,
+  flipThreshold,
 };

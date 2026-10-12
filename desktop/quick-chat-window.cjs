@@ -92,9 +92,20 @@ function createQuickChatWindowHost({
 } = {}) {
   let chatWindow = null;
 
-  function appWindowOptions() {
+  function normalizedPlacement(value) {
+    if (!value || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(Number(value[key])))) return null;
+    const width = Math.max(1, Math.round(Number(value.width)));
+    const height = Math.max(1, Math.round(Number(value.height)));
+    return { x: Math.round(Number(value.x)), y: Math.round(Number(value.y)), width, height, side: value.side === 'left' ? 'left' : 'right' };
+  }
+
+  function appWindowOptions(placementValue = null) {
+    const placement = normalizedPlacement(placementValue);
+    const width = placement?.width || 960;
+    const height = placement?.height || 720;
     return {
-      width: 960, height: 720, minWidth: 640, minHeight: 480,
+      ...(placement ? { x: placement.x, y: placement.y } : {}),
+      width, height, minWidth: Math.min(640, width), minHeight: Math.min(480, height),
       title: '快速聊天', autoHideMenuBar: true, show: false,
       backgroundColor: '#ffffff',
       webPreferences: {
@@ -114,26 +125,33 @@ function createQuickChatWindowHost({
     win.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   }
 
-  async function open(urlValue) {
+  async function open(urlValue, placementValue = null) {
     const url = safeHttps(urlValue);
     if (!url) return { ok: false, error: '聊天网址无效：只允许安全的 HTTPS 地址' };
     if (fixture) return { ok: true, mode: 'fixture-window', cookieScope: 'fixture' };
+    const placement = normalizedPlacement(placementValue);
 
     const browser = await detectBrowserImpl(platform, execFileImpl);
     if (browser && (platform === 'win32' || platform === 'darwin')) {
       const executable = platform === 'darwin'
         ? path.posix.join(browser.path, 'Contents', 'MacOS', browser.name === 'Chrome' ? 'Google Chrome' : 'Microsoft Edge')
         : browser.path;
-      const launched = await launchDetached(spawnImpl, executable, [`--app=${url}`, '--window-size=960,720', '--new-window'], platform);
+      const launchArgs = [`--app=${url}`, `--window-size=${placement?.width || 960},${placement?.height || 720}`];
+      if (placement) launchArgs.push(`--window-position=${placement.x},${placement.y}`);
+      launchArgs.push('--new-window');
+      const launched = await launchDetached(spawnImpl, executable, launchArgs, platform);
       if (launched) return { ok: true, mode: 'browser-app', browser: browser.name, cookieScope: 'default-browser-profile' };
     }
 
     if (typeof BrowserWindowImpl !== 'function') return { ok: false, error: '无法创建聊天小窗；请检查浏览器安装或重试' };
     try {
       if (!chatWindow || chatWindow.isDestroyed()) {
-        chatWindow = new BrowserWindowImpl(appWindowOptions());
+        chatWindow = new BrowserWindowImpl(appWindowOptions(placement));
         installRemotePageGuards(chatWindow);
         chatWindow.on('closed', () => { chatWindow = null; });
+      }
+      if (placement && typeof chatWindow.setBounds === 'function') {
+        chatWindow.setBounds({ x: placement.x, y: placement.y, width: placement.width, height: placement.height });
       }
       if (chatWindow.webContents.getURL() !== url) await chatWindow.loadURL(url);
       if (!chatWindow.isVisible()) chatWindow.show(); else chatWindow.focus();

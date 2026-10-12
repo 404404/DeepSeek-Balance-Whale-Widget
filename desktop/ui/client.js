@@ -39,6 +39,33 @@
     $('chat-config-error').textContent = message;
     $('chat-config-error').hidden = false;
   }
+  function placeSettingsDialog() {
+    const dialog = $('settings-dialog');
+    if (!dialog.open) return;
+    const pet = document.querySelector('.dshwv-img');
+    const petRect = pet?.getBoundingClientRect();
+    const inset = 12;
+    const onRight = petRect ? (petRect.left + petRect.right) / 2 >= window.innerWidth / 2 : false;
+    const freeWidth = onRight
+      ? (petRect ? petRect.left - inset * 2 - 16 : window.innerWidth - inset * 2)
+      : (petRect ? window.innerWidth - petRect.right - inset * 2 - 16 : window.innerWidth - inset * 2);
+    const panelWidth = Math.max(1, Math.min(690, window.innerWidth - inset * 2, freeWidth > 0 ? freeWidth : window.innerWidth - inset * 2));
+    dialog.style.width = `${Math.round(panelWidth)}px`;
+    dialog.classList.toggle('settings-narrow', panelWidth < 620);
+    const sizedRect = dialog.getBoundingClientRect();
+    const maxLeft = Math.max(inset, window.innerWidth - sizedRect.width - inset);
+    const maxTop = Math.max(inset, window.innerHeight - sizedRect.height - inset);
+    const left = onRight ? inset : maxLeft;
+    const centerY = petRect ? (petRect.top + petRect.bottom) / 2 : window.innerHeight / 2;
+    const top = Math.max(inset, Math.min(centerY - sizedRect.height / 2, maxTop));
+    dialog.style.position = 'fixed';
+    dialog.style.margin = '0';
+    dialog.style.right = 'auto';
+    dialog.style.bottom = 'auto';
+    dialog.style.transform = 'none';
+    dialog.style.left = `${Math.round(left)}px`;
+    dialog.style.top = `${Math.round(top)}px`;
+  }
   element('chatProvider').addEventListener('change', () => {
     $('custom-chat-fields').hidden = element('chatProvider').value !== 'custom';
     $('chat-config-error').hidden = true;
@@ -122,11 +149,12 @@
       element('priceModel').value = model;
       const prices = currentConfig.models[model] || {};
       for (const [name, key] of [['priceInput', 'input'], ['priceCached', 'cachedInput'], ['priceOutput', 'output'], ['priceWrite', 'cacheWrite']]) element(name).value = prices[key] ?? '';
-      $('settings-error').hidden = true; $('settings-dialog').showModal();
+      $('settings-error').hidden = true; $('settings-dialog').showModal(); placeSettingsDialog();
       if (await paintSubscriptions()) watchSubscriptions();
     } catch (error) { toast(error.message); }
   }
   window.addEventListener('whale-open-settings', openSettings);
+  window.addEventListener('resize', placeSettingsDialog);
   $('settings-dialog').addEventListener('close', () => clearInterval(subscriptionPoll));
   for (const id of ['close-settings', 'cancel-settings']) $(id).addEventListener('click', () => $('settings-dialog').close());
   form.addEventListener('submit', async event => {

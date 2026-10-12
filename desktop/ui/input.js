@@ -57,8 +57,7 @@
     if (!standalone || !pet || !bridge.hitRegion) return;
     const rect = pet.getBoundingClientRect();
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
-    const margin = 5;
-    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-chat-btn-visible,.dshwv-menu.dshwv-menu-open')].filter(el => {
+    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-chat-btn-visible,.dshwv-menu.dshwv-menu-open,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-rolelist-open,.dshwv-audiolist-open')].filter(el => {
       try {
         if (!visible(el)) return false;
         // The role image and the upstream SVG bubble deliberately use
@@ -73,8 +72,21 @@
     });
     const regions = nodes.map(el => {
       const box = el.getBoundingClientRect();
+      const margin = el === pet ? 18 : 5;
       return { left: box.left - margin, top: box.top - margin, width: box.width + margin * 2, height: box.height + margin * 2 };
     }).filter(region => region.width > 0 && region.height > 0);
+    // Keep a native hit runway open from the top quick-action button down
+    // through the avatar. This lets a pointer entering at button height wake
+    // the transparent window even while the buttons are initially hidden.
+    try {
+      const petBox = pet.getBoundingClientRect();
+      const chatBox = document.querySelector('.dshwv-chat-btn')?.getBoundingClientRect();
+      const menuBox = document.querySelector('.dshwv-menu-btn')?.getBoundingClientRect();
+      const runwayTop = Math.min(petBox.top - 18, chatBox?.width > 0 ? chatBox.top : petBox.top - 18);
+      const runwayBottom = Math.max(petBox.bottom + 18, menuBox?.width > 0 ? menuBox.bottom : petBox.bottom + 18);
+      const runway = { left: petBox.left - 18, top: runwayTop, width: petBox.width + 36, height: runwayBottom - runwayTop };
+      if (runway.width > 0 && runway.height > 0) regions.push(runway);
+    } catch {}
     if (!regions.length) return;
     const key = JSON.stringify(regions.map(region => Object.values(region).map(value => Math.round(value * 2) / 2)));
     if (force || key !== lastHitRegion) { lastHitRegion = key; bridge.hitRegion({ regions }); }
@@ -173,6 +185,9 @@
     reportWidgetSize(true);
     reportHitRegion(true);
     rendering.presentFor(220);
+  });
+  if (standalone && bridge.onNativePositionSettled) bridge.onNativePositionSettled(value => {
+    window.dispatchEvent(new CustomEvent('whale-native-position-settled', { detail: value }));
   });
   // Layout ownership is deliberately one-way in standalone mode: ResizeObserver
   // and the native resize event report geometry; mutation/animation frames only

@@ -60,10 +60,11 @@ const browserLaunch = createQuickChatWindowHost({
     const child = new EventEmitter(); child.unref = () => {}; queueMicrotask(() => child.emit('spawn')); return child;
   },
 });
-const appModeResult = await browserLaunch.open('https://chat.example/path?a=1&b=2');
+const browserPlacement = { x: 744, y: 208, width: 560, height: 680, side: 'left' };
+const appModeResult = await browserLaunch.open('https://chat.example/path?a=1&b=2', browserPlacement);
 assert.equal(appModeResult.mode, 'browser-app');
 assert.equal(appModeResult.cookieScope, 'default-browser-profile');
-assert.deepEqual(launchedArgs[0].args, ['--app=https://chat.example/path?a=1&b=2', '--window-size=960,720', '--new-window'], 'browser app arguments preserve query characters without shell interpolation');
+assert.deepEqual(launchedArgs[0].args, ['--app=https://chat.example/path?a=1&b=2', '--window-size=560,680', '--window-position=744,208', '--new-window'], 'browser app arguments preserve URL characters and open beside the avatar without shell interpolation');
 assert.equal(launchedArgs[0].options.shell, false);
 assert.equal((await browserLaunch.open('javascript:alert(1)')).ok, false, 'mini-window host independently rejects unsafe schemes');
 
@@ -79,7 +80,7 @@ const macBrowserLaunch = createQuickChatWindowHost({
 const macAppModeResult = await macBrowserLaunch.open('https://chat.example/');
 assert.equal(macAppModeResult.cookieScope, 'default-browser-profile');
 assert.equal(macLaunches[0].exe, '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', 'macOS invokes the selected browser bundle executable directly so app-mode arguments reach Chromium');
-assert.deepEqual(macLaunches[0].args, ['--app=https://chat.example/', '--window-size=960,720', '--new-window']);
+assert.deepEqual(macLaunches[0].args, ['--app=https://chat.example/', '--window-size=960,720', '--new-window'], 'calls without avatar placement retain the browser default bounds');
 assert.equal(macLaunches[0].options.shell, false);
 
 let fakeChatWindow;
@@ -96,19 +97,23 @@ class FakeChatWindow extends EventEmitter {
   async loadURL(url) { this.url = url; }
   isDestroyed() { return this.destroyed; }
   isVisible() { return this.visible; }
+  setBounds(bounds) { this.bounds = bounds; }
   show() { this.visible = true; }
   focus() { this.focused = true; }
   destroy() { this.destroyed = true; this.emit('closed'); }
 }
 const appSessionWindow = createQuickChatWindowHost({ platform: 'linux', BrowserWindowImpl: FakeChatWindow, detectBrowserImpl: async () => null });
-const miniResult = await appSessionWindow.open('https://chat.example/first');
+const miniPlacement = { x: 96, y: 12, width: 560, height: 680, side: 'right' };
+const miniResult = await appSessionWindow.open('https://chat.example/first', miniPlacement);
 assert.equal(miniResult.mode, 'app-window');
 assert.equal(miniResult.cookieScope, 'app-persistent-session');
 assert.equal(fakeChatWindow.options.webPreferences.partition, 'persist:whale-quick-chat');
+assert.deepEqual({ x: fakeChatWindow.options.x, y: fakeChatWindow.options.y, width: fakeChatWindow.options.width, height: fakeChatWindow.options.height }, miniPlacement && { x: miniPlacement.x, y: miniPlacement.y, width: miniPlacement.width, height: miniPlacement.height }, 'in-app quick chat opens at the computed screen position beside the avatar');
 assert.equal(fakeChatWindow.openHandler({ url: 'javascript:alert(1)' }).action, 'deny');
 assert.equal(fakeChatWindow.openHandler({ url: 'https://login.example/' }).action, 'allow');
-await appSessionWindow.open('https://chat.example/second');
+await appSessionWindow.open('https://chat.example/second', { x: 744, y: 208, width: 560, height: 680, side: 'left' });
 assert.equal(fakeChatWindow.url, 'https://chat.example/second', 'subsequent quick-chat actions reuse the same in-app window');
+assert.deepEqual(fakeChatWindow.bounds, { x: 744, y: 208, width: 560, height: 680 }, 'reused quick-chat window follows the avatar to the opposite side when needed');
 appSessionWindow.close();
 
 const stateFile = path.join(os.tmpdir(), `whale-chat-state-${process.pid}.json`);

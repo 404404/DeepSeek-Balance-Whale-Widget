@@ -10,7 +10,7 @@ const { chooseDropAction } = require('./drop-action.cjs');
 const QuickChatConfig = require('./quick-chat-config.cjs');
 const { createQuickChatWindowHost } = require('./quick-chat-window.cjs');
 const { pathToFileURL } = require('node:url');
-const { targetWidgetSize, widgetSizeApplied, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, resizeKeepingWidgetAnchor, resizeKeepingWindowOrigin, widgetScreenAnchor, nativeDragMovement, cursorInRegions, surfaceRootOffset } = require('./standalone-interaction-model.cjs');
+const { targetWidgetSize, widgetSizeApplied, clampFrameToArea, resizeKeepingBottomRight: resizeFrameKeepingBottomRight, resizeKeepingWidgetAnchor, resizeKeepingWindowOrigin, widgetScreenAnchor, nativeDragMovement, cursorInRegions, surfaceRootOffset, sidePanelBounds } = require('./standalone-interaction-model.cjs');
 
 const root = path.resolve(__dirname, '..');
 const MIN_WIDGET_SIZE = 122;
@@ -257,6 +257,12 @@ function interactionMouseMove(x, y) {
   updateNativeInputRouting();
   window.webContents.sendInputEvent({ type: 'mouseMove', x: Number(x), y: Number(y) });
 }
+function interactionMouseMoveAtScreen(screenX, screenY, localX, localY) {
+  if (!window || window.isDestroyed()) return;
+  syntheticCursorScreen = { x: Number(screenX), y: Number(screenY) };
+  updateNativeInputRouting();
+  window.webContents.sendInputEvent({ type: 'mouseMove', x: Number(localX), y: Number(localY) });
+}
 async function interactionRendererEval(source) {
   if (!window || window.isDestroyed() || window.webContents.isDestroyed()) throw new Error('renderer unavailable');
   return window.webContents.executeJavaScript(source, true);
@@ -300,7 +306,7 @@ async function waitForInteractionLayout(width, height) {
 async function runInteractionTest() {
   if (interactionTestStarted || !window || window.isDestroyed()) return;
   interactionTestStarted = true;
-  const evidence = { version: 'desktop-interaction-3', syntheticInputOnly: true, osPointerValidated: false, pass: false, screenshots: [], steps: [] };
+  const evidence = { version: 'desktop-interaction-4', syntheticInputOnly: true, osPointerValidated: false, pass: false, screenshots: [], steps: [] };
   try {
     const startupReady = await waitForInteractionReady();
     const readiness = { rendererReady, layoutConfigReady, layoutReady, visible: !!window && !window.isDestroyed() && window.isVisible(), frame: interactionFrame(), contentBounds: window && !window.isDestroyed() ? window.getContentBounds() : null };
@@ -319,14 +325,15 @@ async function runInteractionTest() {
     const hoverFrame = interactionFrame();
     const hoverStable = !!initial && !!hoverFrame && JSON.stringify({ x: initial.x, y: initial.y, width: initial.width, height: initial.height }) === JSON.stringify({ x: hoverFrame.x, y: hoverFrame.y, width: hoverFrame.width, height: hoverFrame.height });
     evidence.steps.push({ name: 'real-page-hover-reveals-buttons-without-native-resize', pass: hoverStable && hoverButtons?.chat && hoverButtons?.menu, before: initial, after: hoverFrame, buttons: hoverButtons });
-    const hoverEdgePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.ceil(r.left-5),y:Math.round((r.top+r.bottom)/2)}; })()");
+    const hoverEdgePoint = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(),b=document.querySelector('.dshwv-chat-btn')?.getBoundingClientRect(); return r&&b&&{x:Math.round((b.left+b.right)/2),y:Math.ceil(b.top+1),abovePetTop:b.top<r.top}; })()");
     const beforeFivePxHover = interactionFrame();
     if (hoverEdgePoint) interactionMouseMove(hoverEdgePoint.x, hoverEdgePoint.y);
     await interactionDelay(180);
-    const fivePxHover = await interactionRendererEval("document.querySelector('.dshwv-chat-btn')?.classList.contains('dshwv-chat-btn-visible') === true");
+    const fivePxHover = await interactionRendererEval("(() => { const c=document.querySelector('.dshwv-chat-btn'),m=document.querySelector('.dshwv-menu-btn'); return c?.classList.contains('dshwv-chat-btn-visible')===true && m?.classList.contains('dshwv-menu-btn-visible')===true; })()");
     const afterFivePxHover = interactionFrame();
-    const fivePxHoverStable = !!fivePxHover && !!beforeFivePxHover && !!afterFivePxHover && beforeFivePxHover.x === afterFivePxHover.x && beforeFivePxHover.y === afterFivePxHover.y;
-    evidence.steps.push({ name: 'buttons-reveal-within-five-dip-hover-margin-without-window-move', pass: fivePxHoverStable, point: hoverEdgePoint, before: beforeFivePxHover, after: afterFivePxHover });
+    const hoverRunwayHitRegion = !!hoverEdgePoint && hitRegions.some(region => hoverEdgePoint.x >= region.left && hoverEdgePoint.x <= region.left + region.width && hoverEdgePoint.y >= region.top && hoverEdgePoint.y <= region.top + region.height);
+    const fivePxHoverStable = !!fivePxHover && hoverEdgePoint?.abovePetTop && hoverRunwayHitRegion && !!beforeFivePxHover && !!afterFivePxHover && beforeFivePxHover.x === afterFivePxHover.x && beforeFivePxHover.y === afterFivePxHover.y;
+    evidence.steps.push({ name: 'buttons-remain-visible-through-expanded-pet-hover-runway-without-window-move', pass: fivePxHoverStable, point: hoverEdgePoint, hitRegion: hoverRunwayHitRegion, before: beforeFivePxHover, after: afterFivePxHover });
 
     const scaleResults = [];
     const sequence = [1.5, 0.6, 2.5, 1.0, 1.5];
@@ -406,6 +413,14 @@ async function runInteractionTest() {
       if (settingsOpened) break;
       await interactionDelay(25);
     }
+    for (let i = 0; i < 100 && settingsOpened; i += 1) {
+      const current = interactionFrame();
+      if (surfaceExpanded && current && beforeMenuFrame && current.width > beforeMenuFrame.width + 100) break;
+      await interactionDelay(20);
+    }
+    await interactionDelay(100);
+    const settingsLayout = settingsOpened ? await interactionRendererEval("(() => { const d=document.querySelector('#settings-dialog')?.getBoundingClientRect(),p=document.querySelector('.dshwv-img')?.getBoundingClientRect(),c=document.querySelector('#cancel-settings')?.getBoundingClientRect(),s=document.querySelector('#settings-form button[type=submit]')?.getBoundingClientRect(); return d&&p&&c&&s ? {dialog:{left:d.left,top:d.top,right:d.right,bottom:d.bottom},pet:{left:p.left,top:p.top,right:p.right,bottom:p.bottom},viewport:{width:innerWidth,height:innerHeight},buttonGap:s.left-c.right,overflow:getComputedStyle(document.querySelector('#settings-dialog')).overflowY} : null; })()") : null;
+    const settingsLayoutPass = !!settingsLayout && surfaceExpanded && settingsLayout.dialog.left >= 0 && settingsLayout.dialog.top >= 0 && settingsLayout.dialog.right <= settingsLayout.viewport.width + 1 && settingsLayout.dialog.bottom <= settingsLayout.viewport.height + 1 && (settingsLayout.dialog.right <= settingsLayout.pet.left || settingsLayout.dialog.left >= settingsLayout.pet.right) && settingsLayout.buttonGap >= 10 && settingsLayout.overflow === 'auto';
     if (settingsOpened) await interactionRendererEval("(() => { const p=document.querySelector('[name=chatProvider]'),u=document.querySelector('[name=customChatUrl]'),n=document.querySelector('[name=customChatName]'),f=document.querySelector('#settings-form'); if(!p||!u||!n||!f)return false; p.value='custom'; p.dispatchEvent(new Event('change',{bubbles:true})); u.value='https://chat.example.test/from-settings'; u.dispatchEvent(new Event('input',{bubbles:true})); n.value='验收聊天'; n.dispatchEvent(new Event('input',{bubbles:true})); f.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); return true; })()");
     let savedChatConfig = QuickChatConfig.storedConfig(values());
     let settingsClosed = false;
@@ -416,8 +431,48 @@ async function runInteractionTest() {
       await interactionDelay(25);
     }
     const settingsSurface = await interactionRendererEval("(() => ({title:document.querySelector('.dshwv-chat-btn')?.title,stored:localStorage.getItem('dshw-quick-chat'),error:document.querySelector('#settings-error')?.textContent||''}))()");
-    const settingsSavePass = defaultChatPass && settingsOpened && settingsClosed && savedChatConfig.provider === 'custom' && savedChatConfig.customUrl === 'https://chat.example.test/from-settings' && settingsSurface?.title?.includes('验收聊天') && fixtureOpenedLinks.length === openedBeforeSettings;
+    const settingsSavePass = defaultChatPass && settingsOpened && settingsLayoutPass && settingsClosed && savedChatConfig.provider === 'custom' && savedChatConfig.customUrl === 'https://chat.example.test/from-settings' && settingsSurface?.title?.includes('验收聊天') && fixtureOpenedLinks.length === openedBeforeSettings;
+    evidence.steps.push({ name: 'settings-dialog-stays-inside-native-surface-away-from-pet-with-separated-actions', pass: settingsLayoutPass, layout: settingsLayout, expanded: surfaceExpanded });
     evidence.steps.push({ name: 'quick-chat-settings-default-edit-save-without-opening-browser', pass: settingsSavePass, initialProvider: defaultChatConfig.provider, saved: savedChatConfig, surface: settingsSurface, openedLinks: fixtureOpenedLinks.slice(openedBeforeSettings) });
+    await interactionDelay(250);
+
+    await interactionRendererEval("window.__whaleRenderTest?.openSnap()");
+    let snapModalOpen = false;
+    for (let i = 0; i < 80; i += 1) {
+      snapModalOpen = await interactionRendererEval("getComputedStyle(document.querySelector('.dshwv-snapmask')).display !== 'none'");
+      if (snapModalOpen && surfaceExpanded && inputEnabled) break;
+      await interactionDelay(25);
+    }
+    await interactionDelay(100);
+    const snapControls = snapModalOpen ? await interactionRendererEval("(() => { const center=el=>{const r=el?.getBoundingClientRect();return r&&{x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)}}; return {px:center(document.querySelector('.dshwv-snapmodes input[value=px]')),ratio:center(document.querySelector('.dshwv-snapmodes input[value=ratio]')),right:center(document.querySelector('.dshwv-snapgrid input[title^=右侧吸附区]')),confirm:center(document.querySelector('.dshwv-snapbtn-ok'))}; })()") : null;
+    const snapPoints = snapControls ? Object.values(snapControls).filter(Boolean) : [];
+    const snapHitRegionCoversControls = snapPoints.length === 4 && snapPoints.every(point => hitRegions.some(region => point.x >= region.left && point.x <= region.left + region.width && point.y >= region.top && point.y <= region.top + region.height));
+    const snapInputSurfaceActive = snapModalOpen && surfaceExpanded && inputEnabled;
+    const nativeClickAt = async point => {
+      if (!point) return;
+      interactionMouseMove(point.x, point.y);
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 });
+      await interactionDelay(100);
+    };
+    await nativeClickAt(snapControls?.px);
+    const pxOptionAccepted = await interactionRendererEval("document.querySelector('.dshwv-snapmodes input[value=px]')?.checked === true");
+    await nativeClickAt(snapControls?.ratio);
+    const ratioOptionAccepted = await interactionRendererEval("document.querySelector('.dshwv-snapmodes input[value=ratio]')?.checked === true");
+    await nativeClickAt(snapControls?.right);
+    const rightInputFocused = await interactionRendererEval("document.activeElement === document.querySelector('.dshwv-snapgrid input[title^=右侧吸附区]')");
+    if (rightInputFocused) await interactionRendererEval("(() => {const i=document.querySelector('.dshwv-snapgrid input[title^=右侧吸附区]');i.value='12';i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));return true;})()");
+    await nativeClickAt(snapControls?.confirm);
+    let snapModalClosed = false, savedSnapSettings = null;
+    for (let i = 0; i < 80; i += 1) {
+      const result = await interactionRendererEval("(() => ({closed:getComputedStyle(document.querySelector('.dshwv-snapmask')).display==='none',value:JSON.parse(localStorage.getItem('dshw-snap')||'null')}))()");
+      snapModalClosed = result?.closed === true;
+      savedSnapSettings = result?.value;
+      if (snapModalClosed) break;
+      await interactionDelay(25);
+    }
+    const snapModalPass = snapInputSurfaceActive && snapHitRegionCoversControls && pxOptionAccepted && ratioOptionAccepted && rightInputFocused && snapModalClosed && savedSnapSettings?.mode === 'ratio' && savedSnapSettings?.ratio?.R === 12;
+    evidence.steps.push({ name: 'snap-modal-right-side-controls-receive-native-input-and-save', pass: snapModalPass, opened: snapModalOpen, expanded: snapInputSurfaceActive, nativeInputEnabled: snapInputSurfaceActive, hitRegionsCoverControls: snapHitRegionCoversControls, pxOptionAccepted, ratioOptionAccepted, rightInputFocused, closed: snapModalClosed, saved: savedSnapSettings, controls: snapControls, hitRegions });
     await interactionDelay(250);
 
     const chatFrameBefore = interactionFrame();
@@ -486,6 +541,38 @@ async function runInteractionTest() {
     const secondClickPass = !!afterClick && !!afterSecondClick && afterSecondClick.shown === true && afterSecondClick.epoch !== afterClick.epoch;
     evidence.steps.push({ name: 'synthetic-input-chain-second-click-advances', pass: secondClickPass, first: afterClick, second: afterSecondClick });
     evidence.screenshots.push(await captureInteractionScreenshot('bubble-after-second-click'));
+    const dragAvatarCenterToFraction = async fraction => {
+      const frame = interactionFrame();
+      const roleRect = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
+      if (!frame || !roleRect) return { ok: false, error: 'missing native frame or avatar bounds' };
+      const area = workAreaFor(frame);
+      const start = { x: frame.x + roleRect.x, y: frame.y + roleRect.y };
+      const targetX = Math.round(area.x + area.width * fraction);
+      setInputEnabled(true, 'flip-threshold-test');
+      interactionMouseMove(roleRect.x, roleRect.y);
+      window.webContents.sendInputEvent({ type: 'mouseDown', x: roleRect.x, y: roleRect.y, button: 'left', clickCount: 1 });
+      await interactionDelay(80);
+      interactionMouseMoveAtScreen(targetX, start.y, roleRect.x, roleRect.y);
+      await interactionDelay(80);
+      window.webContents.sendInputEvent({ type: 'mouseUp', x: roleRect.x, y: roleRect.y, button: 'left', clickCount: 1 });
+      let status = null;
+      for (let i = 0; i < 60; i += 1) {
+        await interactionDelay(25);
+        status = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+        const movedFrame = interactionFrame();
+        if (!nativeDrag && movedFrame && Math.abs((movedFrame.x + roleRect.x) - targetX) < 4) break;
+      }
+      await interactionDelay(180);
+      status = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
+      return { ok: !!status, expectedX: targetX, actualX: interactionFrame()?.x + roleRect.x, flip: status?.flip, frame: interactionFrame(), area };
+    };
+    const modestDrag = await dragAvatarCenterToFraction(0.65);
+    const modestDragStable = modestDrag.ok && modestDrag.flip === false;
+    const crossLeft = await dragAvatarCenterToFraction(0.45);
+    const leftFlipPass = crossLeft.ok && crossLeft.flip === true;
+    const crossRight = await dragAvatarCenterToFraction(0.55);
+    const normalRestoredPass = crossRight.ok && crossRight.flip === false;
+    evidence.steps.push({ name: 'native-drag-crosses-display-threshold-with-hysteresis-and-restores-orientation', pass: modestDragStable && leftFlipPass && normalRestoredPass, modestMoveStaysNormal: modestDragStable, crossingLeftFlips: leftFlipPass, crossingRightRestores: normalRestoredPass, modestDrag, crossLeft, crossRight });
     await interactionRendererEval(`window.__whaleRenderTest?.scale(${initialScale})`);
     const restoredFrame = await waitForInteractionFrame(Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))), Math.max(MIN_WIDGET_SIZE, Math.min(MAX_WIDGET_SIZE, Math.round(250 * initialScale))));
     const restorePass = !!restoredFrame;
@@ -568,9 +655,31 @@ async function launchQuickChatTarget(target) {
     fixtureOpenedLinks.push(target.url);
     return { ok: true, status: 'opened-chat', mode: 'fixture-window', cookieScope: 'fixture' };
   }
-  const result = await quickChatWindowHost?.open(target.url);
+  const result = await quickChatWindowHost?.open(target.url, quickChatPlacement());
   if (!result?.ok) return result || { ok: false, error: '快速聊天窗口暂不可用，请稍后重试' };
   return { ...result, status: 'opened-chat', provider: target.provider };
+}
+function quickChatPlacement() {
+  if (!window || window.isDestroyed()) return null;
+  try {
+    const frame = window.getBounds();
+    const area = workAreaFor(frame);
+    const anchor = widgetAnchor || widgetScreenAnchor(frame, widgetAnchorRatio);
+    const anchorY = frame.y + frame.height * 0.70275;
+    return sidePanelBounds({ x: anchor.x, y: anchorY }, area, { width: 560, height: 680, gap: 16, padding: 12 });
+  } catch { return null; }
+}
+function sendNativePositionSettled() {
+  if (!window || window.isDestroyed() || !widgetAnchor) return;
+  try {
+    const frame = window.getBounds();
+    const area = workAreaFor(frame);
+    window.webContents.send('whale-native-position-settled', {
+      anchor: { ...widgetAnchor },
+      workArea: { x: area.x, y: area.y, width: area.width, height: area.height },
+      compactWidth: compactWidgetDimensions()[0],
+    });
+  } catch {}
 }
 async function openQuickChat(event, input) {
   if (!isMainFrame(event) || !trustedQuickChatAt || Date.now() - trustedQuickChatAt > 1000) {
@@ -702,7 +811,8 @@ function applySurfaceGeometry(expanded) {
   if (expanded) {
     const before = window.getBounds();
     const screenAnchor = widgetAnchor || widgetScreenAnchor(before, widgetAnchorRatio);
-    const target = resizeKeepingBottomRight(760, 700) || window.getBounds();
+    const settingsDialog = String(surfaceReason).toLowerCase() === 'dialog';
+    const target = resizeKeepingBottomRight(settingsDialog ? 1120 : 760, settingsDialog ? 760 : 700) || window.getBounds();
     const [width, height] = compactWidgetDimensions();
     // The role is laid out at the compact root's bottom/right. Preserve its
     // pre-expansion screen anchor when the expanded frame fits; when the
@@ -720,8 +830,17 @@ function applySurfaceGeometry(expanded) {
 function setSurface(expanded, reason) {
   if (!window || window.isDestroyed()) return;
   const next = !!expanded;
+  const previousReason = surfaceReason;
   surfaceReason = typeof reason === 'string' && reason ? reason.slice(0, 80) : (next ? 'expanded-surface' : 'none');
-  if (surfaceExpanded === next && pendingSurface === null) return;
+  if (surfaceExpanded === next && pendingSurface === null) {
+    const wasSettingsDialog = String(previousReason).toLowerCase() === 'dialog';
+    const isSettingsDialog = String(surfaceReason).toLowerCase() === 'dialog';
+    if (next && wasSettingsDialog !== isSettingsDialog) {
+      applySurfaceGeometry(next);
+      requestRendererLayout();
+    }
+    return;
+  }
   surfaceExpanded = next;
   if (nativeDrag) {
     // Keep the newest request. Applying it from endNativeDrag avoids a
@@ -761,6 +880,7 @@ function setWidgetSize(size) {
   visibility();
 }
 function cursorScreenPoint(fallback) {
+  if (interactionTest && syntheticCursorScreen) return syntheticCursorScreen;
   try {
     const point = screen.getCursorScreenPoint();
     if (Number.isFinite(point?.x) && Number.isFinite(point?.y)) return point;
@@ -811,6 +931,7 @@ function endNativeDrag() {
   }
   updateNativeInputRouting();
   requestRendererLayout();
+  if (completed) sendNativePositionSettled();
 }
 function writeLayoutDiagnostic() {
   if (!layoutTest || !lastLayoutDiagnostic || !window || window.isDestroyed()) return;
@@ -1036,6 +1157,7 @@ if (!lock) {
       visibility();
       invalidate();
       sendCursor(true);
+      sendNativePositionSettled();
       writeInputRoutingDiagnostic();
       if (interactionTest && !interactionTestStarted) setTimeout(() => { runInteractionTest().catch(() => {}); }, 120);
     });
@@ -1081,6 +1203,7 @@ if (!lock) {
     ipcMain.on('whale-drag-start', (event, point) => { if (event.sender === window?.webContents) startNativeDrag(point); });
     ipcMain.on('whale-drag-move', (event, point) => { if (event.sender === window?.webContents) moveNativeDrag(point); });
     ipcMain.on('whale-drag-end', event => { if (event.sender === window?.webContents) endNativeDrag(); });
+    ipcMain.on('whale-position-recheck', event => { if (event.sender === window?.webContents) sendNativePositionSettled(); });
 
     const iconPath = path.join(root, 'assets', 'DSniang1.png');
     const icon = nativeImage.createFromPath(iconPath).resize({ width: 32, height: 32 });

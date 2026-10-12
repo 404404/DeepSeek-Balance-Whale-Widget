@@ -56,6 +56,7 @@
     styleEl.textContent += '\n.dshwv-menu{max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}';
     styleEl.textContent += '\n.dshwv-chat-btn{position:absolute;top:calc(40.55% - 26px);right:4px;width:26px;height:26px;border:0;border-radius:6px;background:rgba(32,49,112,.85);color:#fff;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;pointer-events:auto;z-index:3;opacity:0;visibility:hidden;transition:opacity .15s ease}.dshwv-chat-btn-visible{opacity:1;visibility:visible}.dshwv-chat-btn:hover{background:#203170}.dshwv-chat-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.dshwv-root.dshwv-left .dshwv-chat-btn{transform:scaleX(-1)}.dshwv-root.dshwv-share-drop-active .dshwv-img{filter:drop-shadow(0 0 6px rgba(20,107,112,.85))}';
     styleEl.textContent += '\n.dshwv-chat-btn{top:calc(40.55% - 38px)}.dshwv-menu-btn{top:calc(40.55% + 10px)}';
+    styleEl.textContent += '\n.dshwv-snapmask{pointer-events:auto!important}.dshwv-snapwin,.dshwv-snapwin *{pointer-events:auto}.dshwv-snapgrid{max-width:calc(100vw - 32px)}.dshwv-snapcell{overflow:visible}.dshwv-snapnum{flex:0 0 58px}';
     // 0.2.0 additions: the gray "!" button that reveals the FX explanation.
     styleEl.textContent += '\n.dshwv-fxicon{flex:0 0 auto;width:18px;height:18px;border-radius:50%;border:1px solid rgba(32,49,112,.25);background:rgba(32,49,112,.10);color:#4a5c95;font-size:11px;font-weight:700;line-height:1;padding:0;cursor:pointer;margin-right:2px}';
     styleEl.textContent += '\n.dshwv-fxicon:hover{background:rgba(32,49,112,.20);color:#203170}';
@@ -3171,6 +3172,10 @@
         if (snapConfig.mode === 'off') {
           state.flip = false;
           express();
+          return;
+        }
+        if (standaloneDesktop && window.whaleDesktop && window.whaleDesktop.refreshFlipFromPosition) {
+          window.whaleDesktop.refreshFlipFromPosition();
           return;
         }
         snapCheck();
@@ -9166,6 +9171,33 @@
       } catch (err) {}
       return b;
     }
+    function applyNativePositionFlip(payload) {
+      if (!standaloneDesktop || !payload || !payload.anchor || !payload.workArea) return;
+      var area = payload.workArea;
+      var anchorX = Number(payload.anchor.x), areaX = Number(area.x), width = Number(area.width);
+      if (![anchorX, areaX, width].every(isFinite) || width <= 0) return;
+      if (!snapConfig || snapConfig.mode === 'off') {
+        if (state.flip) { state.flip = false; express(); }
+        return;
+      }
+      var interactionGeometry = window.WhaleInteractionGeometry;
+      var flipAt = interactionGeometry && interactionGeometry.flipThreshold
+        ? interactionGeometry.flipThreshold(snapConfig, area, Number(payload.compactWidth) || 0)
+        : snapBounds({ w: width, h: Number(area.height) || width }).F;
+      if (!isFinite(flipAt)) return;
+      var next;
+      if (interactionGeometry) {
+        next = interactionGeometry.shouldFlipForPosition(!!state.flip, anchorX, area, flipAt);
+      } else {
+        var margin = Math.min(width * 0.1, Math.max(24, width * 0.04));
+        var localX = anchorX - areaX;
+        next = state.flip ? localX < flipAt + margin : localX < flipAt - margin;
+      }
+      if (next !== !!state.flip) { state.flip = next; express(); }
+    }
+    window.addEventListener('whale-native-position-settled', function (event) {
+      applyNativePositionFlip(event && event.detail);
+    });
     function snapZones(cx, cyBox, cyImg, vp) {
       var out = {
         zH: null,
@@ -9183,6 +9215,10 @@
       return out;
     }
     function refreshFlip() {
+      // The standalone BrowserWindow is only the native container around the
+      // role; its local width is not the display width. Native screen geometry
+      // updates orientation after a completed move instead.
+      if (standaloneDesktop) return;
       try {
         if (state.h === 'left') {
           state.flip = true;
@@ -11282,6 +11318,25 @@
       var margin = Math.max(0, Number(hoverMargin) || 0);
       return e.clientX >= rect.left - margin && e.clientX < rect.right + margin && e.clientY >= rect.top - margin && e.clientY < rect.bottom + margin;
     }
+    function isWhaleHoverArea(e, hoverMargin) {
+      if (!e || !img || !img.complete || !img.naturalWidth) return false;
+      try {
+        var top = document.elementFromPoint(e.clientX, e.clientY);
+        if (top && top.closest && (top.closest('dialog') || top.closest('#settings-dialog') || top.closest('.dshwv-qedit'))) return false;
+      } catch (err) {}
+      var rect = img.getBoundingClientRect();
+      var margin = Math.max(0, Number(hoverMargin) || 0);
+      var runwayTop = rect.top - margin;
+      var runwayBottom = rect.bottom + margin;
+      try {
+        var chatRect = chatBtn && chatBtn.getBoundingClientRect();
+        var menuRect = menuBtn && menuBtn.getBoundingClientRect();
+        if (chatRect && chatRect.width > 0 && getComputedStyle(chatBtn).visibility !== 'hidden') runwayTop = Math.min(runwayTop, chatRect.top);
+        else if (chatRect && chatRect.width > 0) runwayTop = Math.min(runwayTop, chatRect.top);
+        if (menuRect && menuRect.width > 0) runwayBottom = Math.max(runwayBottom, menuRect.bottom);
+      } catch (err) {}
+      return e.clientX >= rect.left - margin && e.clientX < rect.right + margin && e.clientY >= runwayTop && e.clientY < runwayBottom;
+    }
     function onDocPointerDown(e) {
       if (e.target && e.target.closest) {
         if (e.target.closest('.dshwv-chat-btn')) return;
@@ -11422,7 +11477,7 @@
         if (!menuBtnHide) menuBtn.classList.add('dshwv-menu-btn-visible');
         return;
       }
-      var over = isWhaleHit(e, 5);
+      var over = isWhaleHoverArea(e, 18);
       setWidgetCursor(over ? 'grab' : '');
       chatBtn.classList.toggle('dshwv-chat-btn-visible', over || menuOpen);
       if (!menuBtnHide) menuBtn.classList.toggle('dshwv-menu-btn-visible', over || menuOpen);
@@ -11605,6 +11660,7 @@
         open: whaleClick,
         menu: function (open) { if (open && !menuOpen) toggleMenu(); else if (!open && menuOpen) closeMenu(); return menuOpen; },
         queue: function (items) { hideBubble(); bubbleSeq = items; },
+        openSnap: function () { openSnapModal(); return true; },
         place: function (x, y, flip) { state.left = x; state.top = y; state.flip = !!flip; express(); },
         scale: setScale, role: applyRole,
         scene: function (modules, ttl) { sceneOpen('custom', function () { bubbleRenderModules(modules); }, ttl || 0); },
