@@ -9181,6 +9181,11 @@
         return;
       }
       var interactionGeometry = window.WhaleInteractionGeometry;
+      if (interactionGeometry && interactionGeometry.visibleArtCenterX) {
+        anchorX = interactionGeometry.visibleArtCenterX(anchorX, Number(payload.compactWidth) || 0, !!state.flip);
+      } else if (state.flip && Number(payload.compactWidth) > 0) {
+        anchorX -= Number(payload.compactWidth) * 0.4055;
+      }
       var flipAt = interactionGeometry && interactionGeometry.flipThreshold
         ? interactionGeometry.flipThreshold(snapConfig, area, Number(payload.compactWidth) || 0)
         : snapBounds({ w: width, h: Number(area.height) || width }).F;

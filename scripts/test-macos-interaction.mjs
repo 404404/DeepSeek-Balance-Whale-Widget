@@ -11,6 +11,8 @@ assert.equal(model.shouldFlipForPosition(false, 0 + 0.48 * area.width, area, are
 assert.equal(model.shouldFlipForPosition(false, 0 + 0.45 * area.width, area, area.width / 2), true, 'crossing the hysteresis band to the left flips the avatar');
 assert.equal(model.shouldFlipForPosition(true, 0 + 0.52 * area.width, area, area.width / 2), true, 'the avatar stays oriented while crossing back through the hysteresis band');
 assert.equal(model.shouldFlipForPosition(true, 0 + 0.55 * area.width, area, area.width / 2), false, 'the avatar returns to normal after crossing the opposite hysteresis edge');
+assert.equal(model.visibleArtCenterX(715, 375, true), 562.9375, 'flip hysteresis follows the visible art center after the avatar is mirrored');
+assert.equal(model.shouldFlipForPosition(true, model.visibleArtCenterX(715, 375, true), { x: 0, y: 25, width: 1024, height: 684 }, 512), false, 'a narrow-screen reverse drag beyond the opposite edge restores normal orientation');
 assert.equal(model.shouldFlipForPosition(false, -1920 + 0.45 * 1920, { x: -1920, y: 0, width: 1920, height: 1080 }, 960), true, 'flip thresholds are measured within the active display work area');
 assert.equal(model.flipThreshold({ mode: 'ratio', ratio: { F: 50 } }, area), 720, 'ratio mode scales its flip line to the active display');
 assert.equal(model.flipThreshold({ mode: 'px', px: { F: 188, L: 80, R: 80 } }, area, 375), 720, 'legacy pixel-mode midpoint derived from the compact widget is rebased to the display midpoint');
