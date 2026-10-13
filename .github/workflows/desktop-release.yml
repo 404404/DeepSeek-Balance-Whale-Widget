@@ -320,7 +320,8 @@ jobs:
           # of packages and installer fixtures). Publish only the exact files
           # staged by each target after its packaged-app acceptance passed.
           ASSETS=( $(find release-inputs -type f -path '*/artifacts/*' \( -name '*.dmg' -o -name '*.zip' -o -name '*.sha256' \) -print | sort) )
-          [[ "${#ASSETS[@]}" -eq 8 ]] || { echo "expected 8 per-artifact binary/sidecar files, got ${#ASSETS[@]}" >&2; exit 1; }
+          # Five matrix targets each stage one installable package and its SHA-256 sidecar.
+          [[ "${#ASSETS[@]}" -eq 10 ]] || { echo "expected 10 per-artifact binary/sidecar files (5 targets), got ${#ASSETS[@]}" >&2; exit 1; }
           ASSETS+=(release-inputs/SHA256SUMS release-inputs/manifest.json)
           if [[ "$PRERELEASE" == true ]]; then
             gh release create "$TAG" --target "$SOURCE_SHA" --title "desktop-demo $VERSION — Windows & macOS" --notes-file "$NOTES" --draft --prerelease --verify-tag "${ASSETS[@]}"
