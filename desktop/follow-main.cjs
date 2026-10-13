@@ -5,7 +5,7 @@ const { UiStateStore } = require('./ui-state-store.cjs');
 const { shutdownCompanion } = require('./lifecycle.cjs');
 const { externalWebUrl } = require('./external-links.cjs');
 const { createNativeShareHost } = require('./native-share-host.cjs');
-const { formatNativeWindowHandle } = require('./native-share.cjs');
+const { nativeWindowHandleToDecimal } = require('./native-share.cjs');
 const { chooseDropAction } = require('./drop-action.cjs');
 const QuickChatConfig = require('./quick-chat-config.cjs');
 const { createQuickChatWindowHost } = require('./quick-chat-window.cjs');
@@ -229,7 +229,7 @@ else {
     markStartup('windowCreated');
     window.once('ready-to-show', () => markStartup('frameReady'));
     if (fixture) window.webContents.on('console-message', (_event, ...args) => { const d = args[0]; if (typeof d === 'object' ? d.level === 'error' : d === 3) rendererErrors.push(typeof d === 'object' ? d.message : args[1]); });
-    if (!fixture) process.stdout.write(JSON.stringify({ overlayHandle: formatNativeWindowHandle(window.getNativeWindowHandle()) }) + '\n');
+    if (!fixture) process.stdout.write(JSON.stringify({ overlayHandle: nativeWindowHandleToDecimal(window.getNativeWindowHandle()) }) + '\n');
     window.setIgnoreMouseEvents(true, { forward: true });
     window.on('show', () => { invalidate(); sendCursor(true); });
     window.on('resize', invalidate);

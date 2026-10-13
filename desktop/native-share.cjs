@@ -16,6 +16,13 @@ function formatNativeWindowHandle(value) {
   throw new RangeError(`native window handle buffer is too short (${value.length} bytes)`);
 }
 
+function nativeWindowHandleToDecimal(value) {
+  if (!Buffer.isBuffer(value)) throw new TypeError('native window handle must be a Buffer');
+  if (value.length >= 8) return value.readBigUInt64LE(0).toString(10);
+  if (value.length >= 4) return BigInt(value.readUInt32LE(0)).toString(10);
+  throw new RangeError(`native window handle buffer is too short (${value.length} bytes)`);
+}
+
 async function validateDroppedPaths(input, { fsImpl = fs, pathImpl = path, maxFiles = MAX_SHARE_FILES } = {}) {
   if (!Array.isArray(input) || input.length === 0) return failure('no-files', '没有检测到可分享的本地文件');
   if (input.length > maxFiles) return failure('too-many-files', `一次最多分享 ${maxFiles} 个文件`);
@@ -41,4 +48,4 @@ async function validateDroppedPaths(input, { fsImpl = fs, pathImpl = path, maxFi
   return files.length ? { ok: true, files } : failure('no-files', '没有检测到可分享的本地文件');
 }
 
-module.exports = { MAX_SHARE_FILES, validateDroppedPaths, formatNativeWindowHandle };
+module.exports = { MAX_SHARE_FILES, validateDroppedPaths, formatNativeWindowHandle, nativeWindowHandleToDecimal };

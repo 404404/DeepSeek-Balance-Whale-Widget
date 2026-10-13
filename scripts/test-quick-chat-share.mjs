@@ -21,6 +21,9 @@ const x64Handle = Buffer.alloc(8);
 x64Handle.writeBigUInt64LE(0x123456789abcdef0n);
 assert.equal(share.formatNativeWindowHandle(x64Handle), '123456789abcdef0', '64-bit HWND formatting preserves the complete native handle');
 assert.throws(() => share.formatNativeWindowHandle(Buffer.alloc(3)), /too short/, 'invalid handle widths fail before launching the native share helper');
+assert.equal(share.nativeWindowHandleToDecimal(x86Handle), '2309737967', '32-bit follow supervisor receives a decimal HWND compatible with PowerShell Int64 parsing');
+assert.equal(share.nativeWindowHandleToDecimal(x64Handle), '1311768467463790320', '64-bit follow supervisor preserves decimal HWND compatibility');
+assert.throws(() => share.nativeWindowHandleToDecimal(Buffer.alloc(3)), /too short/, 'invalid follow HWND widths are rejected');
 
 assert.deepEqual(chat.parseChatConfig(null), chat.DEFAULT_CHAT_CONFIG, 'fresh installs default to DeepSeek');
 assert.equal(chat.parseChatConfig({ version: 1, provider: 'chatgpt' }).provider, 'chatgpt', 'legacy explicit choices survive schema upgrade');
