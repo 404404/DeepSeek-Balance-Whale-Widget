@@ -7,7 +7,7 @@
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "AI Balance Whale",
+    "displayName": "desktop-demo",
     "shortDescription": "可独立启动的 macOS API 余额挂件，支持上游角色、气泡、音效和账本。",
     "longDescription": "基于 MeteorNOX For-Codex Electron 基线的 macOS 独立桌面适配；保留角色、拖动、点击、气泡、音效、素材、吸附、翻转和 API 余额编辑器。Windows 跟随模式仍保留在对应平台路径。",
     "developerName": "MeteorNOX / 本地适配",
@@ -16,7 +16,7 @@
       "Interactive"
     ],
     "defaultPrompt": [
-      "显示 AI Balance Whale",
+      "显示 desktop-demo",
       "查看当前 API 余额与今日用量",
       "打开小鲸鱼设置"
     ],

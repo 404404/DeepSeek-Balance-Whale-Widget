@@ -95,6 +95,14 @@ try {
   assert.equal(payload.ok, true);
   assert.equal(payload.accounts.length, 3);
   assert.equal(JSON.stringify(payload).includes('secret-token'), false);
+  const quickChatModule = await dispatcher.dispatch('/quick-chat-config.cjs');
+  assert.equal(quickChatModule.status, 200, 'quick-chat browser module is served from its packaged native config source');
+  assert.match(quickChatModule.headers['content-type'], /^application\/javascript\b/, 'quick-chat module must not fall through to the JSON error response');
+  assert.match(quickChatModule.body.toString('utf8'), /WhaleQuickChatConfig/);
+  const interactionGeometry = await dispatcher.dispatch('/interaction-geometry.cjs');
+  assert.equal(interactionGeometry.status, 200, 'the browser-safe interaction helper is served from the packaged UI allowlist');
+  assert.match(interactionGeometry.headers['content-type'], /^application\/javascript\b/, 'browser interaction helper must have an executable script MIME type');
+  assert.match(interactionGeometry.body.toString('utf8'), /shouldFlipForPosition/);
   await dispatcher.close();
   service.close();
 } finally {

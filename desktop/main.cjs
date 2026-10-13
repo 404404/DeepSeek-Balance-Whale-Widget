@@ -1,9 +1,11 @@
 'use strict';
 
-// Keep the mature Windows Codex-following host intact, but make the macOS
-// boundary explicit: the packaged Mac App never enters the host-tracking
-// lifecycle or its coordinate conversion path.
-if (process.platform === 'darwin') {
+const { app } = require('electron');
+
+// Packaged desktop apps launch standalone on both supported OS families.
+// Developer/supervisor invocations remain Codex-following unless explicitly
+// started with --standalone, preserving the existing Windows follow scripts.
+if (process.platform === 'darwin' || (process.platform === 'win32' && app.isPackaged)) {
   require('./standalone-main.cjs');
 } else if (process.argv.includes('--standalone') || process.env.WHALE_DESKTOP_MODE === 'standalone') {
   require('./standalone-main.cjs');

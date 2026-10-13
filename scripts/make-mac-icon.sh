@@ -2,13 +2,13 @@
 set -euo pipefail
 
 SOURCE="${1:-assets/DSniang1.png}"
-OUTPUT="${2:-build/AI Balance Whale.icns}"
+OUTPUT="${2:-build/desktop-demo.icns}"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "make-mac-icon.sh must run on macOS" >&2
   exit 2
 fi
 mkdir -p "$(dirname "$OUTPUT")"
-ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/ai-whale-icon.XXXXXX.iconset")"
+ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/desktop-demo-icon.XXXXXX.iconset")"
 trap 'rm -rf "$ICONSET"' EXIT
 for spec in \
   "16 icon_16x16.png" "32 icon_16x16@2x.png" \

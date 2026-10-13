@@ -4,15 +4,63 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const model = require(fileURLToPath(new URL('../desktop/standalone-interaction-model.cjs', import.meta.url)));
 const area = { x: 0, y: 0, width: 1440, height: 900 };
+assert.deepEqual(model.sidePanelBounds({ x: 1320, y: 840 }, area), { x: 744, y: 208, width: 560, height: 680, side: 'left' }, 'a pet on the right opens chat to its left and clamps the panel vertically');
+assert.deepEqual(model.sidePanelBounds({ x: 80, y: 60 }, area), { x: 96, y: 12, width: 560, height: 680, side: 'right' }, 'a pet on the left opens chat to its right and stays in the work area');
+assert.deepEqual(model.sidePanelBounds({ x: -1840, y: 500 }, { x: -1920, y: 0, width: 1920, height: 1080 }), { x: -1824, y: 160, width: 560, height: 680, side: 'right' }, 'chat positioning respects negative coordinates on a secondary display');
+assert.equal(model.shouldFlipForPosition(false, 0 + 0.48 * area.width, area, area.width / 2), false, 'the avatar does not flip from small/random movement near the display midpoint');
+assert.equal(model.shouldFlipForPosition(false, 0 + 0.45 * area.width, area, area.width / 2), true, 'crossing the hysteresis band to the left flips the avatar');
+assert.equal(model.shouldFlipForPosition(true, 0 + 0.52 * area.width, area, area.width / 2), true, 'the avatar stays oriented while crossing back through the hysteresis band');
+assert.equal(model.shouldFlipForPosition(true, 0 + 0.55 * area.width, area, area.width / 2), false, 'the avatar returns to normal after crossing the opposite hysteresis edge');
+assert.equal(model.flipPointX({ anchor: { x: 715 }, dragPoint: { x: 563 } }), 563, 'native drag hysteresis uses the actual release point instead of an orientation-dependent anchor');
+assert.equal(model.shouldFlipForPosition(true, model.flipPointX({ anchor: { x: 715 }, dragPoint: { x: 563 } }), { x: 0, y: 25, width: 1024, height: 684 }, 512), false, 'a narrow-screen reverse drag beyond the opposite edge restores normal orientation');
+assert.equal(model.flipPointX({ anchor: { x: 715 } }), 715, 'non-drag position checks retain the current visual anchor');
+assert.equal(model.shouldFlipForPosition(false, -1920 + 0.45 * 1920, { x: -1920, y: 0, width: 1920, height: 1080 }, 960), true, 'flip thresholds are measured within the active display work area');
+assert.equal(model.flipThreshold({ mode: 'ratio', ratio: { F: 50 } }, area), 720, 'ratio mode scales its flip line to the active display');
+assert.equal(model.flipThreshold({ mode: 'px', px: { F: 188, L: 80, R: 80 } }, area, 375), 720, 'legacy pixel-mode midpoint derived from the compact widget is rebased to the display midpoint');
+assert.equal(model.flipThreshold({ mode: 'px', px: { F: 640, L: 80, R: 80 } }, area, 375), 640, 'an explicitly configured pixel-mode flip line remains in display pixels');
 assert.equal(model.targetWidgetSize(0.6), 150);
 assert.equal(model.targetWidgetSize(1.0), 250);
 assert.equal(model.targetWidgetSize(1.6), 400);
 assert.equal(model.targetWidgetSize(2.5), 625);
+assert.equal(model.widgetSizeApplied({ width: 375, height: 375 }, { width: 248, height: 274 }, area), false, 'stale legacy native frame is not layout-ready');
+assert.equal(model.widgetSizeApplied({ width: 375, height: 375 }, { width: 375, height: 375 }, area), true, 'native resize event can confirm the requested layout later');
+assert.equal(model.widgetSizeApplied({ width: 625, height: 625 }, { width: 400, height: 400 }, { x: 0, y: 0, width: 400, height: 400 }), true, 'screen-constrained native size is a valid applied layout');
 const frame = { x: 1000, y: 500, width: 375, height: 375 };
 const shrunk = model.resizeKeepingBottomRight(frame, 150, 150, area);
 assert.deepEqual(shrunk, { x: 1225, y: 725, width: 150, height: 150 });
 const grown = model.resizeKeepingBottomRight(shrunk, 625, 625, area);
 assert.deepEqual(grown, { x: 750, y: 250, width: 625, height: 625 });
+let fixedOrigin = { x: 700, y: 200, width: 375, height: 375 };
+for (let cycle = 0; cycle < 20; cycle += 1) {
+  for (const size of [150, 625, 250, 375]) {
+    fixedOrigin = model.resizeKeepingWindowOrigin(fixedOrigin, size, size, area);
+    assert.equal(fixedOrigin.x, 700, 'scale must not move the native window origin horizontally when work area permits');
+    assert.equal(fixedOrigin.y, 200, 'scale must not move the native window origin vertically when work area permits');
+    assert.equal(fixedOrigin.width, size);
+    assert.equal(fixedOrigin.height, size);
+  }
+}
+assert.deepEqual(model.resizeKeepingWindowOrigin({ x: 1400, y: 850, width: 150, height: 150 }, 625, 625, area),
+  { x: 815, y: 275, width: 625, height: 625 }, 'only the minimum shift needed to keep the resized window in the work area is allowed');
+const preferredOrigin = { x: 1000, y: 500 };
+const edgeGrown = model.resizeKeepingWindowOrigin({ ...preferredOrigin, width: 375, height: 375 }, 625, 625, area, 122, preferredOrigin);
+assert.deepEqual(edgeGrown, { x: 815, y: 275, width: 625, height: 625 });
+assert.deepEqual(model.resizeKeepingWindowOrigin(edgeGrown, 375, 375, area, 122, preferredOrigin),
+  { x: 1000, y: 500, width: 375, height: 375 }, 'shrinking after an edge clamp restores the original user position once it fits without cumulative drift');
+const roleAnchorRatio = 0.70275;
+let anchored = { x: 900, y: 350, width: 375, height: 375 };
+const stableAnchor = { x: anchored.x + anchored.width * roleAnchorRatio, y: anchored.y + anchored.height };
+for (const size of [150, 625, 250, 375]) {
+  anchored = model.resizeKeepingWidgetAnchor(anchored, size, size, area, roleAnchorRatio, stableAnchor);
+  assert.ok(Math.abs(anchored.x + anchored.width * roleAnchorRatio - stableAnchor.x) <= 1, `role X anchor drift at ${size}`);
+  assert.ok(Math.abs(anchored.y + anchored.height - stableAnchor.y) <= 1, `role bottom drift at ${size}`);
+}
+for (let i = 0; i < 20; i += 1) {
+  const down = model.resizeKeepingWidgetAnchor(anchored, 150, 150, area, roleAnchorRatio, stableAnchor);
+  const up = model.resizeKeepingWidgetAnchor(down, 625, 625, area, roleAnchorRatio, stableAnchor);
+  assert.deepEqual(up, model.resizeKeepingWidgetAnchor(anchored, 625, 625, area, roleAnchorRatio, stableAnchor), 'scale roundtrip accumulated drift');
+  anchored = model.resizeKeepingWidgetAnchor(up, 375, 375, area, roleAnchorRatio, stableAnchor);
+}
 const compactFrame = { x: 1000, y: 500, width: 250, height: 250 };
 const expandedFrame = model.resizeKeepingBottomRight(compactFrame, 760, 700, area);
 const rootOffset = model.surfaceRootOffset(expandedFrame, 250, 250, { right: compactFrame.x + compactFrame.width, bottom: compactFrame.y + compactFrame.height });
@@ -24,6 +72,10 @@ const clampedOffset = model.surfaceRootOffset(clampedSurface, 250, 250, { right:
 assert.deepEqual(clampedOffset, { left: 375, top: 400 });
 assert.equal(clampedSurface.x + clampedOffset.left + 250, 625);
 assert.equal(clampedSurface.y + clampedOffset.top + 250, 650);
+const roleScreenAnchor = { x: compactFrame.x + compactFrame.width * roleAnchorRatio, y: compactFrame.y + compactFrame.height };
+const anchoredSurfaceOffset = model.surfaceRootOffset(expandedFrame, 250, 250, roleScreenAnchor, roleAnchorRatio);
+assert.ok(Math.abs(expandedFrame.x + anchoredSurfaceOffset.left + 250 * roleAnchorRatio - roleScreenAnchor.x) <= 1);
+assert.ok(Math.abs(expandedFrame.y + anchoredSurfaceOffset.top + 250 - roleScreenAnchor.y) <= 1);
 assert.equal(model.screenMoved({ x: 100, y: 200 }, { x: 102, y: 201 }), false);
 assert.equal(model.screenMoved({ x: 100, y: 200 }, { x: 104, y: 201 }), true);
 assert.deepEqual(model.nativeDragMovement({ x: 100, y: 200 }, { x: 102, y: 201 }), { dx: 2, dy: 1, moved: false, shouldMove: false });

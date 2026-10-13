@@ -7,7 +7,7 @@
   let point = { x: -1, y: -1 }, heldPointer = null, releaseEpoch = 0, interactive = false, keyboardFocus = false, ready = false, lastStorage = '', surfaceExpanded = false, lastWidgetSize = '', lastHitRegion = '', lastSurfaceReason = 'none', lastDiagnosticKey = '';
   const standalone = bridge.standalone === true;
   const testMode = bridge.testMode === true;
-  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden])';
+  const surfaces = 'dialog[open],.dshwv-menu,.dshwv-menu-btn,.dshwv-chat-btn,.dshwv-rolelist,.dshwv-audiolist,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-custmenu,.dshwv-custbtn,.dshwv-tplhelp,.dshwv-fxinfo,.dshwv-fxicon,#toast:not([hidden])';
   // A visible hover button belongs to the compact widget hit area. It is not
   // an expanded surface: expanding the native window on hover creates a
   // resize -> coordinate -> hover feedback loop.
@@ -43,10 +43,17 @@
   }
   function updateSurface() {
     if (!standalone) return;
+    // A modal dialog remains an expanded surface for its entire open lifetime.
+    // On Windows, checkVisibility() can briefly report false while Electron is
+    // resizing the native window for that dialog; treating that transient result
+    // as a close collapses the window, then expands it again on the next DOM
+    // update, making the whole widget jump repeatedly.
+    const openDialog = document.querySelector('dialog[open]');
     const active = [...document.querySelectorAll(expandedSurfaces)].find(el =>
       el.checkVisibility({ opacityProperty: true, visibilityProperty: true }) && getComputedStyle(el).pointerEvents !== 'none');
-    const next = !!active;
-    const reason = active ? String(active.className || active.tagName || 'expanded-surface').slice(0, 80) : 'none';
+    const surface = openDialog || active;
+    const next = !!surface;
+    const reason = !surface ? 'none' : surface === openDialog ? 'dialog' : String(surface.className || surface.tagName || 'expanded-surface').slice(0, 80);
     if (next !== surfaceExpanded || reason !== (surfaceExpanded ? lastSurfaceReason : 'none')) {
       surfaceExpanded = next;
       lastSurfaceReason = reason;
@@ -57,8 +64,7 @@
     if (!standalone || !pet || !bridge.hitRegion) return;
     const rect = pet.getBoundingClientRect();
     if (![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
-    const margin = 4;
-    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-menu.dshwv-menu-open')].filter(el => {
+    const nodes = [pet, ...document.querySelectorAll('dialog[open],.dshwv-pop-open,.dshwv-menu-btn-visible,.dshwv-chat-btn-visible,.dshwv-menu.dshwv-menu-open,[class*="mask"],.dshwv-qedit,.dshwv-usagepanel,.dshwv-rolelist-open,.dshwv-audiolist-open')].filter(el => {
       try {
         if (!visible(el)) return false;
         // The role image and the upstream SVG bubble deliberately use
@@ -73,8 +79,21 @@
     });
     const regions = nodes.map(el => {
       const box = el.getBoundingClientRect();
+      const margin = el === pet ? 18 : 5;
       return { left: box.left - margin, top: box.top - margin, width: box.width + margin * 2, height: box.height + margin * 2 };
     }).filter(region => region.width > 0 && region.height > 0);
+    // Keep a native hit runway open from the top quick-action button down
+    // through the avatar. This lets a pointer entering at button height wake
+    // the transparent window even while the buttons are initially hidden.
+    try {
+      const petBox = pet.getBoundingClientRect();
+      const chatBox = document.querySelector('.dshwv-chat-btn')?.getBoundingClientRect();
+      const menuBox = document.querySelector('.dshwv-menu-btn')?.getBoundingClientRect();
+      const runwayTop = Math.min(petBox.top - 18, chatBox?.width > 0 ? chatBox.top : petBox.top - 18);
+      const runwayBottom = Math.max(petBox.bottom + 18, menuBox?.width > 0 ? menuBox.bottom : petBox.bottom + 18);
+      const runway = { left: petBox.left - 18, top: runwayTop, width: petBox.width + 36, height: runwayBottom - runwayTop };
+      if (runway.width > 0 && runway.height > 0) regions.push(runway);
+    } catch {}
     if (!regions.length) return;
     const key = JSON.stringify(regions.map(region => Object.values(region).map(value => Math.round(value * 2) / 2)));
     if (force || key !== lastHitRegion) { lastHitRegion = key; bridge.hitRegion({ regions }); }
@@ -84,13 +103,15 @@
     const rect = root.getBoundingClientRect();
     const width = Math.max(root.offsetWidth || 0, Math.abs(rect.width || 0));
     const height = Math.max(root.offsetHeight || 0, Math.abs(rect.height || 0));
-    const key = Math.round(width) + 'x' + Math.round(height);
+    const imageRect = pet?.getBoundingClientRect();
+    const anchorRatioX = imageRect && width > 0 ? Math.max(0, Math.min(1, ((imageRect.left + imageRect.right) / 2 - rect.left) / width)) : 0.70275;
+    const key = Math.round(width) + 'x' + Math.round(height) + ':' + Math.round(anchorRatioX * 10000);
     if (width <= 0 || height <= 0) return;
     if (key !== lastWidgetSize) {
       lastWidgetSize = key;
       const configuredScale = Number.parseFloat(getComputedStyle(root).getPropertyValue('--dshw-scale'));
       const requested = Number.isFinite(configuredScale) ? Math.max(122, Math.min(625, Math.round(250 * configuredScale))) : width;
-      bridge.widgetSize({ width, height, requestedWidth: requested, requestedHeight: requested });
+      bridge.widgetSize({ width, height, requestedWidth: requested, requestedHeight: requested, anchorRatioX });
     }
     reportHitRegion();
     if (testMode && (forceDiagnostic || key !== lastDiagnosticKey)) {
@@ -150,6 +171,7 @@
     reportHitRegion(true);
     request();
   });
+  window.addEventListener('whale-anchor-change', () => { lastWidgetSize = ''; reportWidgetSize(true); reportHitRegion(true); });
   if (standalone && bridge.onNativeWidgetSize) bridge.onNativeWidgetSize(value => {
     if (!value || !Number.isFinite(Number(value.width)) || !Number.isFinite(Number(value.height))) return;
     if (value.constrained) root.style.setProperty('--dshw-base', Math.min(Number(value.width), Number(value.height)) + 'px');
@@ -170,6 +192,22 @@
     reportWidgetSize(true);
     reportHitRegion(true);
     rendering.presentFor(220);
+  });
+  if (standalone && bridge.onNativeSurfaceGeometry) bridge.onNativeSurfaceGeometry(value => {
+    if (!value || !Number.isSafeInteger(Number(value.id)) || !Number.isFinite(Number(value.left)) || !Number.isFinite(Number(value.top)) || !root) return;
+    // Move the pet inside the renderer before the host moves the native frame.
+    // The synchronous acknowledgement prevents Windows painting mismatched
+    // window and pet coordinates during a settings resize.
+    root.style.left = Math.round(Number(value.left)) + 'px';
+    root.style.top = Math.round(Number(value.top)) + 'px';
+    window.dispatchEvent(new Event('whale-native-root-offset'));
+    rendering.presentFor(220);
+    bridge.commitSurfaceGeometry(Number(value.id));
+    reportWidgetSize(true);
+    reportHitRegion(true);
+  });
+  if (standalone && bridge.onNativePositionSettled) bridge.onNativePositionSettled(value => {
+    window.dispatchEvent(new CustomEvent('whale-native-position-settled', { detail: value }));
   });
   // Layout ownership is deliberately one-way in standalone mode: ResizeObserver
   // and the native resize event report geometry; mutation/animation frames only

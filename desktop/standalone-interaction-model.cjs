@@ -1,11 +1,20 @@
 'use strict';
 
+const { shouldFlipForPosition, flipPointX, flipThreshold } = require('./ui/interaction-geometry.cjs');
+
 function finite(value) { return Number.isFinite(Number(value)); }
 
 function targetWidgetSize(scale, { base = 250, min = 122, max = 625 } = {}) {
   const value = Number(scale);
   const raw = finite(value) && value >= 0.6 && value <= 2.5 ? base * value : base * 1.5;
   return Math.max(min, Math.min(max, Math.round(raw)));
+}
+
+function widgetSizeApplied(requested, actual, area, min = 122, tolerance = 2) {
+  if (!requested || !actual || !area || ![requested.width, requested.height, actual.width, actual.height, area.width, area.height].every(finite)) return false;
+  const expectedWidth = Math.min(Math.max(min, Number(requested.width)), Math.max(min, Number(area.width)));
+  const expectedHeight = Math.min(Math.max(min, Number(requested.height)), Math.max(min, Number(area.height)));
+  return Math.abs(expectedWidth - Number(actual.width)) <= tolerance && Math.abs(expectedHeight - Number(actual.height)) <= tolerance;
 }
 
 function clampFrameToArea(frame, area, min = 122) {
@@ -24,6 +33,32 @@ function resizeKeepingBottomRight(frame, width, height, area, min = 122) {
     x: Number(frame.x) + Number(frame.width) - Number(width),
     y: Number(frame.y) + Number(frame.height) - Number(height),
     width, height,
+  }, area, min);
+}
+
+function resizeKeepingWindowOrigin(frame, width, height, area, min = 122, origin = { x: frame.x, y: frame.y }) {
+  return clampFrameToArea({
+    x: Number(origin?.x),
+    y: Number(origin?.y),
+    width,
+    height,
+  }, area, min);
+}
+
+function widgetScreenAnchor(frame, roleAnchorRatio = 0.70275) {
+  return {
+    x: Number(frame.x) + Number(frame.width) * roleAnchorRatio,
+    y: Number(frame.y) + Number(frame.height),
+  };
+}
+
+function resizeKeepingWidgetAnchor(frame, width, height, area, roleAnchorRatio = 0.70275, anchor = widgetScreenAnchor(frame, roleAnchorRatio), min = 122) {
+  if (!anchor || !finite(anchor.x) || !finite(anchor.y) || !finite(roleAnchorRatio) || roleAnchorRatio < 0 || roleAnchorRatio > 1) return clampFrameToArea({ ...frame, width, height }, area, min);
+  return clampFrameToArea({
+    x: Number(anchor.x) - Number(width) * roleAnchorRatio,
+    y: Number(anchor.y) - Number(height),
+    width,
+    height,
   }, area, min);
 }
 
@@ -58,26 +93,60 @@ function expandedSurfaceFromState(state = {}) {
   return !!(state.menuOpen || state.dialogOpen || state.editorOpen || state.maskOpen || state.listOpen);
 }
 
-function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = null) {
+function surfaceRootOffset(frame, compactWidth, compactHeight, screenAnchor = null, roleAnchorRatio = 0.70275) {
   const frameWidth = Math.round(Number(frame?.width) || 0);
   const frameHeight = Math.round(Number(frame?.height) || 0);
   const compactW = Math.round(Number(compactWidth) || 0);
   const compactH = Math.round(Number(compactHeight) || 0);
-  const desiredRight = finite(screenAnchor?.right) ? Number(screenAnchor.right) : Number(frame?.x || 0) + frameWidth;
-  const desiredBottom = finite(screenAnchor?.bottom) ? Number(screenAnchor.bottom) : Number(frame?.y || 0) + frameHeight;
+  const hasRoleAnchor = finite(screenAnchor?.x) && finite(screenAnchor?.y);
+  const ratio = hasRoleAnchor ? roleAnchorRatio : 1;
+  const desiredX = hasRoleAnchor ? Number(screenAnchor.x) : finite(screenAnchor?.right) ? Number(screenAnchor.right) : Number(frame?.x || 0) + frameWidth;
+  const desiredBottom = hasRoleAnchor ? Number(screenAnchor.y) : finite(screenAnchor?.bottom) ? Number(screenAnchor.bottom) : Number(frame?.y || 0) + frameHeight;
   return {
-    left: Math.max(0, Math.min(Math.max(0, frameWidth - compactW), Math.round(desiredRight - Number(frame?.x || 0) - compactW))),
+    left: Math.max(0, Math.min(Math.max(0, frameWidth - compactW), Math.round(desiredX - Number(frame?.x || 0) - compactW * ratio))),
     top: Math.max(0, Math.min(Math.max(0, frameHeight - compactH), Math.round(desiredBottom - Number(frame?.y || 0) - compactH))),
+  };
+}
+
+function sidePanelBounds(anchor, area, {
+  width = 560, height = 680, gap = 16, padding = 12,
+} = {}) {
+  if (!anchor || !area || ![anchor.x, anchor.y, area.x, area.y, area.width, area.height, width, height, gap, padding].every(finite)) return null;
+  const areaX = Number(area.x), areaY = Number(area.y);
+  const areaWidth = Math.max(1, Number(area.width)), areaHeight = Math.max(1, Number(area.height));
+  const inset = Math.max(0, Math.min(Number(padding), Math.min(areaWidth, areaHeight) / 2));
+  const panelWidth = Math.min(Math.max(1, Number(width)), Math.max(1, areaWidth - inset * 2));
+  const panelHeight = Math.min(Math.max(1, Number(height)), Math.max(1, areaHeight - inset * 2));
+  const preferred = Number(anchor.x) >= areaX + areaWidth / 2 ? 'left' : 'right';
+  const candidates = [preferred, preferred === 'left' ? 'right' : 'left'];
+  const available = side => side === 'left'
+    ? Number(anchor.x) - Number(gap) - panelWidth >= areaX + inset
+    : Number(anchor.x) + Number(gap) + panelWidth <= areaX + areaWidth - inset;
+  const side = candidates.find(available) || preferred;
+  const proposedX = side === 'left' ? Number(anchor.x) - Number(gap) - panelWidth : Number(anchor.x) + Number(gap);
+  const proposedY = Number(anchor.y) - panelHeight / 2;
+  return {
+    x: Math.round(Math.max(areaX + inset, Math.min(proposedX, areaX + areaWidth - inset - panelWidth))),
+    y: Math.round(Math.max(areaY + inset, Math.min(proposedY, areaY + areaHeight - inset - panelHeight))),
+    width: Math.round(panelWidth), height: Math.round(panelHeight), side,
   };
 }
 
 module.exports = {
   targetWidgetSize,
+  widgetSizeApplied,
   clampFrameToArea,
   resizeKeepingBottomRight,
+  resizeKeepingWindowOrigin,
+  widgetScreenAnchor,
+  resizeKeepingWidgetAnchor,
   screenMoved,
   nativeDragMovement,
   cursorInRegions,
   expandedSurfaceFromState,
   surfaceRootOffset,
+  sidePanelBounds,
+  shouldFlipForPosition,
+  flipPointX,
+  flipThreshold,
 };
