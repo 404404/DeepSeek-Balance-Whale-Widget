@@ -8,7 +8,7 @@ desktop-demo 是一只常驻桌面的透明小鲸鱼挂件，沿用上游 `For-C
 
 - 新增“快速聊天”按钮，默认 DeepSeek，也可选 ChatGPT、Grok、豆包、元宝、千问或自定义 HTTPS 网址。Chrome/Edge 为默认 HTTPS 浏览器时，以无地址栏的应用窗口打开并使用其默认浏览器配置文件；其它浏览器使用 desktop-demo 自己的持久会话，需在小窗单独登录。此功能与账户额度、API provider 和 Auth 登录无关。
 - 从 Finder 或 Windows 文件资源管理器把普通本地文件拖到人偶上，会先让用户选择“快速聊天”或“系统分享”，也可取消。快速聊天只打开聊天页面，不会自动上传拖入文件；系统分享只把经过验证的本地文件交给操作系统，不读取文件正文、不上传、不移动原文件，也不声称分享已送达。暂不接受文件夹和虚拟附件。
-- 独立桌面版覆盖 Windows x64、Windows ARM64、macOS Intel x64 和 macOS Apple Silicon ARM64；Windows 普通安装版独立启动，开发模式保留 Codex-follow 脚本入口。
+- 独立桌面版覆盖 Windows x86/32-bit、Windows x64、Windows ARM64、macOS Intel x64 和 macOS Apple Silicon ARM64；Windows 普通安装版独立启动，开发模式保留 Codex-follow 脚本入口。
 - macOS App 兼容下限为 macOS 11（由当前 Electron 36 runtime 决定）；Windows Share UI 需要受支持的 Windows 桌面环境。
 
 角色和编辑器仍使用仓库里的上游 `assets/whale-widget.js` 与原有配置，不用 demo 对话页面替换。聊天按钮的相对位置、按钮命中和显隐参考 fork 的 `demo/macdesktop-quick-chat`（`b8a5510`），但真实产品按钮通过正式设置及受控原生桥接打开外部网站，不带入 demo overlay。
@@ -19,7 +19,7 @@ desktop-demo 是一只常驻桌面的透明小鲸鱼挂件，沿用上游 `For-C
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/404404/DeepSeek-Balance-Whale-Widget/releases) 下载与你的系统和处理器架构匹配的 Windows 安装包／便携 ZIP，或 macOS Intel／Apple Silicon DMG。DMG 将 App 拖到 `Applications` 后启动。当前 macOS 包为 ad-hoc 签名、未经 Apple Developer ID 签名和公证；首次打开若被系统拦截，可按 Apple 的“打开被阻止的 App”流程从“隐私与安全性”中确认，不要关闭 Gatekeeper。Windows 安装包目前未做 Authenticode 签名。
+从 [GitHub Releases](https://github.com/404404/DeepSeek-Balance-Whale-Widget/releases) 下载与你的系统和处理器架构匹配的 Windows 安装包／便携 ZIP，或 macOS Intel／Apple Silicon DMG。Windows x86 指 32-bit IA-32；当前 Electron 36 提供该目标的预构建运行时。DMG 将 App 拖到 `Applications` 后启动。当前 macOS 包为 ad-hoc 签名、未经 Apple Developer ID 签名和公证；首次打开若被系统拦截，可按 Apple 的“打开被阻止的 App”流程从“隐私与安全性”中确认，不要关闭 Gatekeeper。Windows 安装包目前未做 Authenticode 签名。
 
 DMG 内含 `Applications` 快捷方式；Windows 安装包按当前用户安装，不要求管理员权限。
 
@@ -63,17 +63,17 @@ ARCH=x64 bash scripts/smoke-mac-app.sh 'dist/desktop-demo.app'
 Windows 打包需在对应原生架构的 Visual Studio Developer 环境中运行：
 
 ```powershell
-./scripts/build-windows-share.ps1 -Arch x64 # ARM64 runner 使用 -Arch arm64
-./scripts/build-windows.ps1 -Arch x64 -Version 0.3.0-beta.10
-./scripts/smoke-windows-app.ps1 -AppDir 'dist/windows-x64/desktop-demo-win32-x64' -Arch x64 -OutputDir 'qa-output/windows-x64' -Installer 'dist/windows-x64/desktop-demo-windows-x64-v0.3.0-beta.10-setup.exe'
+./scripts/build-windows-share.ps1 -Arch ia32 # 以 amd64_x86 MSVC target 编译 x86 helper
+./scripts/build-windows.ps1 -Arch ia32 -Version 0.3.0-beta.13
+./scripts/smoke-windows-app.ps1 -AppDir 'dist/windows-ia32/desktop-demo-win32-ia32' -Arch ia32 -OutputDir 'qa-output/windows-ia32' -PortableZip 'dist/windows-ia32/desktop-demo-windows-ia32-v0.3.0-beta.13-portable.zip'
 ```
 
 `npm test` 包含语法、坐标模型、HTTPS 设置校验、文件路径拒绝规则、macOS ShareMenu／Windows helper 注入契约以及现有额度 Auth 回归。打包 smoke 会启动实际 `.app`／`.exe`，检查角色资源、命中区域、配置旧版窗口迁移、聊天按钮一次打开、快速连点与 20 轮同进程缩放；Windows 还测试安装到含空格路径后运行与卸载，macOS 验证 DMG 可挂载。`sendInputEvent` 是合成 Electron 输入，不是 OS 物理鼠标验收；GitHub-hosted runner 不验证系统分享面板中目标 App 的真实选择或文件收件结果。smoke 截图与诊断将作为 Actions artifacts 上传。Electron/Chromium 仍是安装包主体积，本次只报告体积，不移除运行时功能。
 
 GitHub Actions：
 
-- `Cross-platform desktop acceptance` 对 PR 与开发分支运行行为测试，并分别在 `windows-2022`、`windows-11-vs2026-arm`、`macos-15-intel`、`macos-15` 原生 runner 上构建、启动最终包和运行打包检查；Mac runner 固定选择 Xcode 16.4，Node 固定 24.8.0。
-- `Cross-platform desktop prerelease` 接受 `desktop-v*` 标签和手动输入；发布矩阵先解析单一源 SHA，全部四架构验收后才制作 draft Release，校验远程资产后公开。
+- `Cross-platform desktop acceptance` 对 PR 与开发分支运行行为测试，并分别在 `windows-2022`（x86、x64）、`windows-11-vs2026-arm`、`macos-15-intel`、`macos-15` 原生 runner 上构建、启动最终包和运行打包检查；Mac runner 固定选择 Xcode 16.4，Node 固定 24.8.0。
+- `Cross-platform desktop prerelease` 接受 `desktop-v*` 标签和手动输入；发布矩阵先解析单一源 SHA，全部五个目标验收后才制作 draft Release，校验远程资产后公开。
 - PR/普通 CI 只有 `contents: read`，没有真实 Auth 凭据或签名 secrets；Windows 安装包与 macOS App 当前均未做正式开发者签名/公证。此仓库不向 npm 发布。
 
 更细的结构和验收记录见：

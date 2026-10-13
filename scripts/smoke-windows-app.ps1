@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)][string]$AppDir,
-  [Parameter(Mandatory = $true)][ValidateSet('x64', 'arm64')][string]$Arch,
+  [Parameter(Mandatory = $true)][ValidateSet('ia32', 'x64', 'arm64')][string]$Arch,
   [Parameter(Mandatory = $true)][string]$OutputDir,
   [string]$Installer = '',
   [string]$PortableZip = ''

@@ -1,5 +1,5 @@
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('x64', 'arm64')][string]$Arch,
+  [Parameter(Mandatory = $true)][ValidateSet('ia32', 'x64', 'arm64')][string]$Arch,
   [string]$Output = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -7,6 +7,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 if (-not $Output) { $Output = Join-Path $Root "build\windows-$Arch\whale-share.exe" }
 $ActualTargetArch = switch -Regex ($env:VSCMD_ARG_TGT_ARCH) {
   '^(amd64|x64)$' { 'x64'; break }
+  '^x86$' { 'ia32'; break }
   '^arm64$' { 'arm64'; break }
   default { '' }
 }

@@ -1,6 +1,6 @@
 param(
   [Parameter(Mandatory = $true)][string]$AppDir,
-  [Parameter(Mandatory = $true)][ValidateSet('x64', 'arm64')][string]$Arch,
+  [Parameter(Mandatory = $true)][ValidateSet('ia32', 'x64', 'arm64')][string]$Arch,
   [Parameter(Mandatory = $true)][string]$Version
 )
 $ErrorActionPreference = 'Stop'
@@ -24,7 +24,7 @@ function Get-PeMachine([string]$Path) {
     return $Reader.ReadUInt16()
   } finally { $Stream.Dispose() }
 }
-$ExpectedMachine = if ($Arch -eq 'x64') { 0x8664 } else { 0xAA64 }
+$ExpectedMachine = switch ($Arch) { 'ia32' { 0x014c } 'x64' { 0x8664 } 'arm64' { 0xAA64 } }
 foreach ($Path in @($Exe, $ShareHelper)) {
   $Machine = Get-PeMachine $Path
   if ($Machine -ne $ExpectedMachine) { throw ("PE architecture mismatch for {0}: 0x{1:X4}, expected 0x{2:X4}" -f $Path, $Machine, $ExpectedMachine) }

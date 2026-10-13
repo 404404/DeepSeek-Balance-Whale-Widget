@@ -3943,6 +3943,23 @@
               "rgb": "macaron",
               "italic": true,
               "ul": false
+            }, {
+              "t": "token 来!",
+              "w": 3,
+              "size": 16,
+              "rgb": "candy",
+              "color": ""
+            }, {
+              "t": "你知道吗，我们的宇宙是虚拟的，因为垃圾会自发的产生但不会自发的消失，这是内存泄露",
+              "w": 3,
+              "bold": true,
+              "size": 5,
+              "rgb": "indigo",
+              "color": "",
+              "italic": false,
+              "ul": false,
+              "bgRgb": "",
+              "bg": ""
             }],
             "size": 8
           }]

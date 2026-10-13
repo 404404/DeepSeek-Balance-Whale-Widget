@@ -14,6 +14,14 @@ const { chooseDropAction } = require(fileURLToPath(new URL('../desktop/drop-acti
 const { createQuickChatWindowHost, parseWindowsDefaultBrowser } = require(fileURLToPath(new URL('../desktop/quick-chat-window.cjs', import.meta.url)));
 const { UiStateStore } = require(fileURLToPath(new URL('../desktop/ui-state-store.cjs', import.meta.url)));
 
+const x86Handle = Buffer.alloc(4);
+x86Handle.writeUInt32LE(0x89abcdef);
+assert.equal(share.formatNativeWindowHandle(x86Handle), '89abcdef', '32-bit HWNDs are formatted without reading beyond the native handle');
+const x64Handle = Buffer.alloc(8);
+x64Handle.writeBigUInt64LE(0x123456789abcdef0n);
+assert.equal(share.formatNativeWindowHandle(x64Handle), '123456789abcdef0', '64-bit HWND formatting preserves the complete native handle');
+assert.throws(() => share.formatNativeWindowHandle(Buffer.alloc(3)), /too short/, 'invalid handle widths fail before launching the native share helper');
+
 assert.deepEqual(chat.parseChatConfig(null), chat.DEFAULT_CHAT_CONFIG, 'fresh installs default to DeepSeek');
 assert.equal(chat.parseChatConfig({ version: 1, provider: 'chatgpt' }).provider, 'chatgpt', 'legacy explicit choices survive schema upgrade');
 assert.deepEqual(chat.storedConfig({ 'dshw-provider': 'deepseek', 'dshw-auth-status': 'connected' }), chat.DEFAULT_CHAT_CONFIG, 'legacy users receive a chat default without touching API/Auth settings');

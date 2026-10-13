@@ -105,6 +105,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - target: windows-ia32
+            runner: windows-2022
+            os: windows
+            arch: ia32
+            msvc_arch: amd64_x86
           - target: windows-x64
             runner: windows-2022
             os: windows
@@ -246,7 +251,7 @@ jobs:
           pattern: desktop-release-*
           path: release-inputs
           merge-multiple: false
-      - name: Verify all four records, package hashes and source identity
+      - name: Verify all five records, package hashes and source identity
         run: node scripts/verify-release-set.mjs release-inputs '${{ needs.resolve-source.outputs.source_sha }}' '${{ needs.resolve-source.outputs.version }}'
 
   publish:
@@ -307,7 +312,7 @@ jobs:
             "Includes the quick-chat browser button, validated HTTPS service settings, local-file drag-and-drop into the operating-system share UI, and role-anchor-preserving resizing. Existing quota/auth and upstream widget interaction paths remain in place." \
             "Windows settings dialogs now keep the native surface expanded throughout resize transitions, preventing repeated window size and position changes." \
             "" \
-            "Downloads: Windows x64 and ARM64 portable ZIP builds; macOS Intel x64 and Apple Silicon ARM64 DMGs. No Windows installer is attached. macOS App bundles are ad-hoc signed only and are not notarized." \
+            "Downloads: Windows x86 (IA-32), x64 and ARM64 portable ZIP builds; macOS Intel x64 and Apple Silicon ARM64 DMGs. No Windows installer is attached. macOS App bundles are ad-hoc signed only and are not notarized." \
             "" \
             "CI launches the packaged app on each native runner, exercises packaged renderer/native IPC input and same-process resize regressions, tests the Windows install/uninstall path and mounts each macOS DMG. OS-level pointer injection and actual Windows/macOS share-sheet delivery are not verified by headless CI; the share UI is user-mediated and the app does not report delivery success." \
             > "$NOTES"

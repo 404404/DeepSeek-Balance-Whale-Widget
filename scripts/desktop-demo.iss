@@ -5,11 +5,13 @@
   #error AppVersion is required
 #endif
 #ifndef AppArch
-  #error AppArch must be x64 or arm64
+  #error AppArch must be ia32, x64 or arm64
 #endif
 
 #if AppArch == "arm64"
   #define AllowedArchitectures "arm64"
+#elif AppArch == "ia32"
+  #define AllowedArchitectures "x86compatible"
 #else
   #define AllowedArchitectures "x64compatible"
 #endif
@@ -23,8 +25,12 @@ DefaultDirName={localappdata}\Programs\desktop-demo
 DefaultGroupName=desktop-demo
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+#if AppArch == "ia32"
+ArchitecturesAllowed=x86compatible
+#else
 ArchitecturesAllowed={#AllowedArchitectures}
 ArchitecturesInstallIn64BitMode={#AllowedArchitectures}
+#endif
 OutputDir={#OutputDir}
 OutputBaseFilename=desktop-demo-windows-{#AppArch}-v{#AppVersion}-setup
 Compression=lzma2

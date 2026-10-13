@@ -8,6 +8,8 @@ The compact chat button sits above the existing settings button with a 22-DIP ga
 
 The first button placement and the idea of a separate menu-adjacent hit target were reviewed against fork demo commit `b8a5510` on `demo/macdesktop-quick-chat`. That demo is not used as a product implementation: product routing goes through the settings schema and a narrowly scoped native IPC action.
 
+The shipped default bubble queue remains the Electron/upstream `BUBBLE_DEFAULT_ITEMS` structure. The beta.12 source matched upstream `For-Codex` at `7fa45961`; upstream `main` at `5247dd6` added two styled random lines in commits `770d3f5` and `d00b3b7`. This branch carries those two additions while leaving existing custom queues and unrelated upstream business logic untouched.
+
 ## Local file sharing
 
 External file drops are accepted only over the role image's hit area. Files dropped on chat/settings controls or editor sorting regions are not shared. The preload uses Electron `webUtils.getPathForFile`; the main process then canonicalizes and checks each path and accepts at most 20 readable regular files. Directories, missing files, and special entries receive explicit rejection results. A native choice dialog offers Quick Chat, OS Share, or Cancel for validated files. If Electron cannot expose a local path, it still offers Quick Chat or Cancel and explains that the file must be re-dropped to use OS Share. Choosing Quick Chat never attaches or uploads files. File contents are not read and there is no upload endpoint in this flow.
@@ -29,6 +31,7 @@ The required native matrix is:
 
 | Artifact target | Runner | Product |
 | --- | --- | --- |
+| `windows-ia32` | `windows-2022` | x86/32-bit per-user Inno Setup installer + portable ZIP |
 | `windows-x64` | `windows-2022` | per-user Inno Setup installer + portable ZIP |
 | `windows-arm64` | `windows-11-vs2026-arm` | native ARM64 per-user installer + portable ZIP |
 | `macos-x64` | `macos-15-intel` | Intel DMG |
@@ -36,11 +39,13 @@ The required native matrix is:
 
 macOS jobs explicitly select Xcode 16.4 and verify the main executable and Electron Framework architecture, bundle metadata, `app.asar` resources, ad-hoc signature integrity and mounted DMG contents. The bundle short version is the numeric release base (for example `0.3.0`); the legal increasing CFBundleVersion is the CI build number. The prerelease suffix remains in the release tag and asset filenames, not in the Apple bundle version fields.
 
-Windows jobs compile the native helper using the matching MSVC target, inspect the PE machine field for both Electron and helper executables, verify unpacked helper/resource placement and `app.asar`, launch the packaged executable, install to a path containing spaces, launch the installed executable, and uninstall it. Application state is isolated to the test data directory.
+Windows jobs compile the native helper using the matching MSVC target, inspect the PE machine field for both Electron and helper executables, verify unpacked helper/resource placement and `app.asar`, launch the packaged executable, install to a path containing spaces, launch the installed executable, and uninstall it. The x86/IA-32 and x64 targets cross-compile on `windows-2022`; ARM64 uses its native runner. Application state is isolated to the test data directory.
 
-Every native job captures its runner/runtime target, app and `app.asar` size, output bytes and SHA-256, plus packaged screenshots and diagnostic JSON. `acceptance-gate` requires all four jobs and verifies artifact records against the downloaded files. Release builds use one resolved full commit SHA for all four targets. A draft Release is only made public after downloading and byte-verifying its assets.
+Every native job captures its runner/runtime target, app and `app.asar` size, output bytes and SHA-256, plus packaged screenshots and diagnostic JSON. `acceptance-gate` requires all five jobs and verifies artifact records against the downloaded files. Release builds use one resolved full commit SHA for all five targets. A draft Release is only made public after downloading and byte-verifying its assets.
 
-Synthetic Electron input and packaged-app launch are automated evidence, not OS-level physical pointer testing. Headless runner tests also do not prove that a particular share target is installed, can consume every file type, or successfully sends it. Those items require manual testing on native Windows x64/ARM64 and Intel/Apple Silicon Macs. Release notes must preserve these distinctions.
+Synthetic Electron input and packaged-app launch are automated evidence, not OS-level physical pointer testing. Headless runner tests also do not prove that a particular share target is installed, can consume every file type, or successfully sends it. Those items require manual testing on native Windows IA-32/x64/ARM64 and Intel/Apple Silicon Macs. Release notes must preserve these distinctions.
+
+The Windows IA-32 bundle uses Electron 36.9.5's `win32-ia32` runtime; Electron documents Electron 43 as the final release series shipping prebuilt Windows x86 binaries. The project pins Electron 36.9.5 for this compatibility target.
 
 ## Security and packaging boundaries
 

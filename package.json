@@ -1,6 +1,6 @@
 {
   "name": "desktop-demo",
-  "version": "0.3.0-beta.12",
+  "version": "0.3.0-beta.13",
   "description": "desktop-demo standalone cross-platform desktop widget, adapted from the upstream For-Codex Electron build.",
   "type": "module",
   "license": "MIT",
@@ -41,7 +41,7 @@
     "verify:mac": "bash scripts/verify-mac-app.sh",
     "build:windows:share": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-share.ps1",
     "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
-    "test": "npm run check && node scripts/test-macos-interaction.mjs && node scripts/test-preload-drop-paths.mjs && node scripts/test-quick-chat-share.mjs && node scripts/test-subscription-auth.mjs"
+    "test": "npm run check && node scripts/test-macos-interaction.mjs && node scripts/test-preload-drop-paths.mjs && node scripts/test-quick-chat-share.mjs && node scripts/test-subscription-auth.mjs && node scripts/test-upstream-random-defaults.mjs"
   },
   "devDependencies": {
     "@electron/asar": "3.2.18",

@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { createReadStream } from 'node:fs';
 
 const [target, outputFile, runtimeFile, appDir, ...artifacts] = process.argv.slice(2);
-const validTargets = new Set(['windows-x64', 'windows-arm64', 'macos-x64', 'macos-arm64']);
+const validTargets = new Set(['windows-ia32', 'windows-x64', 'windows-arm64', 'macos-x64', 'macos-arm64']);
 if (!validTargets.has(target) || !outputFile || !runtimeFile || !appDir || artifacts.length < 1) {
   throw new Error('usage: write-build-record <target> <output.json> <runtime.json> <app-dir> <artifact...>');
 }
@@ -12,7 +12,7 @@ const sourceSha = process.env.SOURCE_SHA || '';
 const version = process.env.APP_VERSION || '';
 if (!/^[0-9a-f]{40}$/i.test(sourceSha)) throw new Error('SOURCE_SHA must be a full commit SHA');
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) throw new Error(`invalid app version: ${version}`);
-const targetArch = target.endsWith('arm64') ? 'arm64' : 'x64';
+const targetArch = target.endsWith('arm64') ? 'arm64' : target.endsWith('ia32') ? 'ia32' : 'x64';
 const platform = target.startsWith('windows-') ? 'win32' : 'darwin';
 const runtime = JSON.parse(await fs.readFile(runtimeFile, 'utf8'));
 if (runtime.platform !== platform || runtime.arch !== targetArch || runtime.appPackaged !== true) {

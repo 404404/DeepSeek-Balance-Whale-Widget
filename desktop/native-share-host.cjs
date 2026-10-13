@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { validateDroppedPaths } = require('./native-share.cjs');
+const { validateDroppedPaths, formatNativeWindowHandle } = require('./native-share.cjs');
 
 function createNativeShareHost({ app, window, screen, platform = process.platform, fixture = false, onActive = () => {}, onOpened = () => {}, spawnImpl = spawn, ShareMenuImpl = null, windowsHelperPath = null, existsSyncImpl = fs.existsSync } = {}) {
   let active = false, menu = null, child = null, disposed = false;
@@ -54,7 +54,7 @@ function createNativeShareHost({ app, window, screen, platform = process.platfor
       : path.join(__dirname, 'native', 'bin', 'whale-share.exe'));
     if (!existsSyncImpl(helper)) return { ok: false, code: 'share-helper-missing', message: 'Windows 原生分享组件不存在；请重新安装完整版本' };
     let handle;
-    try { handle = window.getNativeWindowHandle().readBigUInt64LE().toString(16); }
+    try { handle = formatNativeWindowHandle(window.getNativeWindowHandle()); }
     catch { return { ok: false, code: 'window-handle-unavailable', message: '无法定位挂件窗口，请重试' }; }
     setActive(true);
     let settled = false, output = '';

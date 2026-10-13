@@ -8,7 +8,7 @@ if (!rootArg || !/^[0-9a-f]{40}$/i.test(expectedSha || '') || !expectedVersion) 
   throw new Error('usage: verify-release-set <download-root> <source-sha> <version>');
 }
 const root = path.resolve(rootArg);
-const targets = ['windows-x64', 'windows-arm64', 'macos-x64', 'macos-arm64'];
+const targets = ['windows-ia32', 'windows-x64', 'windows-arm64', 'macos-x64', 'macos-arm64'];
 const foundRecords = [];
 async function walk(directory) {
   for (const item of await fs.readdir(directory, { withFileTypes: true })) {
@@ -34,7 +34,7 @@ for (const { file, value: record } of records) {
   if (record.sourceSha?.toLowerCase() !== expectedSha.toLowerCase() || record.appVersion !== expectedVersion) {
     throw new Error(`source/version mismatch for ${record.target}: sha=${record.sourceSha} version=${record.appVersion}`);
   }
-  const arch = record.target.endsWith('arm64') ? 'arm64' : 'x64';
+  const arch = record.target.endsWith('arm64') ? 'arm64' : record.target.endsWith('ia32') ? 'ia32' : 'x64';
   if (record.targetArch !== arch || record.packagedRuntime?.arch !== arch || record.packagedRuntime?.packaged !== true) throw new Error(`packaged runtime architecture mismatch in ${record.target}`);
   const parent = path.dirname(file);
   const localArtifacts = [];
@@ -56,9 +56,10 @@ for (const { file, value: record } of records) {
   assets.push(...localArtifacts);
 }
 for (const target of targets) if (!seen.has(target)) throw new Error(`missing build target: ${target}`);
-if (windowsInstallerTargets[0] !== windowsInstallerTargets[1]) throw new Error('Windows targets must both include installers or both be portable-only');
+if (new Set(windowsInstallerTargets).size > 1) throw new Error('Windows targets must all include installers or all be portable-only');
 const publishable = assets.filter(item => !item.name.endsWith('.sha256'));
-const expectedPrimaryArtifacts = 4 + (windowsInstallerTargets[0] ? 2 : 0);
+const windowsTargetCount = targets.filter(target => target.startsWith('windows-')).length;
+const expectedPrimaryArtifacts = targets.length + (windowsInstallerTargets[0] ? windowsTargetCount : 0);
 if (publishable.length !== expectedPrimaryArtifacts) throw new Error(`expected ${expectedPrimaryArtifacts} primary installation artifacts, got ${publishable.length}`);
 const releaseRoot = path.resolve(rootArg);
 const sums = publishable.map(item => `${item.sha256}  ${item.name}`).sort().join('\n') + '\n';
