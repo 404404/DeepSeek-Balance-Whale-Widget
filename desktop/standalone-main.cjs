@@ -548,6 +548,13 @@ async function runInteractionTest() {
     const secondClickPass = !!afterClick && !!afterSecondClick && afterSecondClick.shown === true && afterSecondClick.epoch !== afterClick.epoch;
     evidence.steps.push({ name: 'synthetic-input-chain-second-click-advances', pass: secondClickPass, first: afterClick, second: afterSecondClick });
     evidence.screenshots.push(await captureInteractionScreenshot('bubble-after-second-click'));
+    const waitForNativeDragState = async expected => {
+      for (let i = 0; i < 80; i += 1) {
+        if (!!nativeDrag === expected) return true;
+        await interactionDelay(10);
+      }
+      return !!nativeDrag === expected;
+    };
     const dragAvatarCenterToFraction = async fraction => {
       const frame = interactionFrame();
       const roleRect = await interactionRendererEval("(() => { const r=document.querySelector('.dshwv-img')?.getBoundingClientRect(); return r&&{x:Math.round((r.left+r.right)/2),y:Math.round((r.top+r.bottom)/2)}; })()");
@@ -558,20 +565,41 @@ async function runInteractionTest() {
       setInputEnabled(true, 'flip-threshold-test');
       interactionMouseMove(roleRect.x, roleRect.y);
       window.webContents.sendInputEvent({ type: 'mouseDown', x: roleRect.x, y: roleRect.y, button: 'left', clickCount: 1 });
-      await interactionDelay(80);
+      const dragStarted = await waitForNativeDragState(true);
+      if (!dragStarted) {
+        window.webContents.sendInputEvent({ type: 'mouseUp', x: roleRect.x, y: roleRect.y, button: 'left', clickCount: 1 });
+        await waitForNativeDragState(false);
+        return { ok: false, error: 'renderer-to-native dragStart handshake was not observed', dragStarted, expectedX: targetX, frame: interactionFrame(), area };
+      }
       interactionMouseMoveAtScreen(targetX, start.y, roleRect.x, roleRect.y);
-      await interactionDelay(80);
+      let movementObserved = false;
+      let movedFrame = null;
+      for (let i = 0; i < 100; i += 1) {
+        movedFrame = interactionFrame();
+        if (nativeDrag?.moved && movedFrame && Math.abs((movedFrame.x + roleRect.x) - targetX) < 4) {
+          movementObserved = true;
+          break;
+        }
+        if (!nativeDrag) break;
+        await interactionDelay(20);
+      }
       window.webContents.sendInputEvent({ type: 'mouseUp', x: roleRect.x, y: roleRect.y, button: 'left', clickCount: 1 });
+      const dragEnded = await waitForNativeDragState(false);
       let status = null;
-      for (let i = 0; i < 60; i += 1) {
+      for (let i = 0; i < 80; i += 1) {
         await interactionDelay(25);
         status = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
-        const movedFrame = interactionFrame();
-        if (!nativeDrag && movedFrame && Math.abs((movedFrame.x + roleRect.x) - targetX) < 4) break;
+        movedFrame = interactionFrame();
+        const expectedFlip = fraction < 0.5;
+        if (dragEnded && !nativeDrag && status && status.flip === expectedFlip && movedFrame && Math.abs((movedFrame.x + roleRect.x) - targetX) < 4) break;
       }
-      await interactionDelay(180);
       status = await interactionRendererEval("window.__whaleRenderTest?.status() || null");
-      return { ok: !!status, expectedX: targetX, actualX: interactionFrame()?.x + roleRect.x, flip: status?.flip, frame: interactionFrame(), area };
+      const finalFrame = interactionFrame();
+      const actualX = finalFrame?.x + roleRect.x;
+      const expectedFlip = fraction < 0.5;
+      const positionPass = Number.isFinite(actualX) && Math.abs(actualX - targetX) < 4;
+      const flipPass = status?.flip === expectedFlip;
+      return { ok: dragStarted && dragEnded && movementObserved && positionPass && flipPass, dragStarted, dragEnded, movementObserved, positionPass, flipPass, expectedFlip, expectedX: targetX, actualX, flip: status?.flip, frame: finalFrame, area };
     };
     const modestDrag = await dragAvatarCenterToFraction(0.65);
     const modestDragStable = modestDrag.ok && modestDrag.flip === false;
